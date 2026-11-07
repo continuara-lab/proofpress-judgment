@@ -22,8 +22,8 @@ def main():
                 raise RuntimeError(f"CLI {args[0]} failed: {result.stderr} {result.stdout}")
             return json.loads(result.stdout)
 
-        def context(facts="facts.json"):
-            return cli("context", "--scope", "support/billing", "--facts", str(root / "examples" / facts),
+        def context(facts="coding-facts.json"):
+            return cli("context", "--scope", "coding/generated-files", "--facts", str(root / "examples" / facts),
                        "--actor", "agent:session-b", "--purpose", "Synthetic lifecycle test")
 
         def simulated_owner(item, action):
@@ -35,23 +35,23 @@ def main():
             return cli(*command)
 
         cli("init", "--owner", "human:synthetic-review-fixture")
-        first = cli("capture", "--from", str(root / "examples/billing.json"))
+        first = cli("capture", "--from", str(root / "examples/coding.json"))
         assert context()["judgments"] == []
         simulated_owner(first, "admit")
         initial = context()
         assert len(initial["judgments"]) == 1
         old_receipt = initial["receipt"]["receipt_id"]
-        cli("check", "--receipt", old_receipt, "--facts", str(root / "examples/facts.json"))
-        assert context("not-applicable.json")["judgments"] == []
-        second = cli("revise", first["id"], "--from", str(root / "examples/billing-v2.json"),
+        cli("check", "--receipt", old_receipt, "--facts", str(root / "examples/coding-facts.json"))
+        assert context("coding-not-applicable.json")["judgments"] == []
+        second = cli("revise", first["id"], "--from", str(root / "examples/coding-v2.json"),
                      "--base-digest", first["digest"], "--reason", "Narrow the synthetic conditions")
         assert context()["judgments"][0]["version"] == 1
         simulated_owner(second, "admit")
         assert context()["judgments"][0]["version"] == 2
-        stale = cli("check", "--receipt", old_receipt, "--facts", str(root / "examples/facts.json"), expected=3)
+        stale = cli("check", "--receipt", old_receipt, "--facts", str(root / "examples/coding-facts.json"), expected=3)
         current_receipt = context()["receipt"]["receipt_id"]
         simulated_owner(second, "withdraw")
-        withdrawn = cli("check", "--receipt", current_receipt, "--facts", str(root / "examples/facts.json"), expected=3)
+        withdrawn = cli("check", "--receipt", current_receipt, "--facts", str(root / "examples/coding-facts.json"), expected=3)
         assert context()["judgments"] == []
         trace = cli("import-trace", "--session", str(root / "examples/trace-session.json"), "--event", "evt_001",
                     "--template", str(root / "examples/trace-template.json"), "--recorded-by", "agent:importer")

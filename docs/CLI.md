@@ -1,6 +1,7 @@
 # CLI guide
 
-Run these commands from the repository root after installing the package.
+For normal use, start with [agent setup](AGENTS.md). The commands below expose
+the full local lifecycle; the examples are synthetic coding guidance.
 
 ## Install from a checkout
 
@@ -12,6 +13,9 @@ python3 -m venv .venv
 .venv/bin/judgment --help
 ```
 
+Activate the environment with `source .venv/bin/activate` to use `judgment` in
+the examples below. The uv tool install in the README needs no activation.
+
 Install dependencies once; normal commands run offline. `--workspace` is a global
 option and goes **before** the command. It defaults to `.judgment` in the current
 directory. Store files are gitignored. Do not commit private sessions or stores.
@@ -21,28 +25,32 @@ directory. Store files are gitignored. Do not commit private sessions or stores.
 The examples are synthetic. Inspect the source JSON, provenance, conditions and
 limits before using the explicit manual-review commands. Replace ID and DIGEST
 with the values returned by capture. The local identities are self-asserted.
+Paths under `examples/` assume a source checkout. Without one, `judgment example`
+prints an input you can adapt and the installed skill includes its own example.
+
+If you have not run setup, initialize a store with `judgment init --owner human:me`.
+Skip initialization when setup already created it.
 
 ```sh
-.venv/bin/judgment init --owner human:me
-.venv/bin/judgment capture --from examples/billing.json
-.venv/bin/judgment inbox
-.venv/bin/judgment show ID --version 1 --format markdown
+judgment capture --from examples/coding.json
+judgment inbox
+judgment show ID --version 1 --format markdown
 
 # Before admission, context contains no usable judgment.
-.venv/bin/judgment context --scope support/billing --facts examples/facts.json \
-  --actor agent:session-b --purpose 'Route a synthetic dispute'
+judgment context --scope coding/generated-files --facts examples/coding-facts.json \
+  --actor agent:session-b --purpose 'Plan a synthetic generated-client change'
 
 # Human operator only: bind review to the inspected revision and digest.
-.venv/bin/judgment review ID --version 1 --digest DIGEST --admit \
+judgment review ID --version 1 --digest DIGEST --admit \
   --reason 'Reviewed source, rationale and scope for this synthetic case' --confirm
 
-.venv/bin/judgment context --scope support/billing --facts examples/facts.json \
-  --actor agent:session-b --purpose 'Route a synthetic dispute'
+judgment context --scope coding/generated-files --facts examples/coding-facts.json \
+  --actor agent:session-b --purpose 'Plan a synthetic generated-client change'
 
 # New candidate; previous admission does not cover its changed contents.
-.venv/bin/judgment revise ID --from examples/billing-v2.json \
+judgment revise ID --from examples/coding-v2.json \
   --base-digest DIGEST --reason 'Owner narrowed the scope'
-.venv/bin/judgment show ID --version 2
+judgment show ID --version 2
 ```
 
 Review version 2 with its **new digest**, using the same review command. Its
@@ -51,10 +59,10 @@ admitted version remains usable if its conditions still hold. If the old version
 is wrong, **withdraw it immediately** rather than wait for replacement review.
 
 ```sh
-.venv/bin/judgment withdraw ID --version 2 --digest NEW_DIGEST \
+judgment withdraw ID --version 2 --digest NEW_DIGEST \
   --reason 'This guidance is no longer applicable' --confirm
-.venv/bin/judgment explain ID
-.venv/bin/judgment audit
+judgment explain ID
+judgment audit
 ```
 
 `review --reject` and `review --request-changes` also require a version, digest,
@@ -70,7 +78,7 @@ that the model used it. Descriptive limits remain visible; they are not executab
 predicates. A `constraint` kind does not install an execution binding.
 
 ```sh
-.venv/bin/judgment check --receipt ctx_RECEIPT_ID --facts examples/facts.json
+judgment check --receipt ctx_RECEIPT_ID --facts examples/coding-facts.json
 ```
 
 `check` fails after withdrawal, supersession, expiry, invalid dependencies,
@@ -87,7 +95,7 @@ this release installs **no runtime hooks or action interception**.
 ## Import TRACE provenance
 
 ```sh
-.venv/bin/judgment import-trace --session examples/trace-session.json \
+judgment import-trace --session examples/trace-session.json \
   --event evt_001 --template examples/trace-template.json --recorded-by agent:importer
 ```
 
@@ -115,14 +123,18 @@ authentication. Every process under your OS account can invoke the CLI or modify
 the files. The owner label and hash chain do not isolate a malicious agent, prove
 source truth, or prevent rewriting an entire store. See [security boundaries](../SECURITY.md).
 
-## Plugin and AJF
+## Agent setup and AJF
 
-- [Agent workflow skill](../plugins/judgment-layer/skills/judgment-layer/SKILL.md):
-  a portable instruction bundle, not an installed host integration. No client
-  configuration is changed by installation of the Python package.
-- [AJF specification](AJF.md): portable content is separate from local governance.
-- [JSON Schema](../src/judgment_layer/ajf.schema.json): the bundled validation source.
-- [Architecture and scope](ARCHITECTURE.md): state, receipts and next boundaries.
+`judgment setup --all --owner human:me` initializes a manual-only workspace and
+installs the [bundled skill](../src/judgment_layer/skill/SKILL.md) into project
+skill directories. See [agent setup](AGENTS.md) for individual hosts, dry runs,
+existing-file preservation and remote execution. Package installation alone does
+not change a host's configuration. No runtime hook is installed.
+
+`judgment example` prints a synthetic coding input to adapt. `judgment schema`
+prints the bundled complete AJF schema; neither opens or approves a workspace.
+The [AJF specification](AJF.md) separates portable content from local governance.
+The [architecture](ARCHITECTURE.md) describes state and eligibility.
 
 There is no ADF auto-migration in this release. Existing ADF records and immutable
 IDs remain unchanged; an explicit conversion needs human-defined applicability

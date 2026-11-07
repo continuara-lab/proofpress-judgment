@@ -45,6 +45,7 @@ def initialize(root, owner):
     if not owner.startswith("human:") or not owner[6:].strip():
         raise JudgmentError("Use --owner human:<name>")
     root.mkdir(parents=True, mode=0o700)
+    (root / ".gitignore").write_text("*\n")
     config = {"schema_version": 1, "owner": owner, "admission": {"mode": "manual"}, "capture": DEFAULT_CAPTURE}
     (root / "config.json").write_text(json.dumps(config, indent=2) + "\n")
     with sqlite3.connect(root / "store.sqlite3") as db:

@@ -9,7 +9,7 @@ One Python package. One SQLite database. Three concepts:
    `rejected`, `superseded`, `withdrawn`), plus read-time scope, conditions, time
    validity and exact-version dependency eligibility.
 
-Every CLI operation opens a transaction, checks stored record/journal integrity,
+Every ledger operation opens a transaction, checks stored record/journal integrity,
 and serializes with `BEGIN IMMEDIATE`. Review binds a human-inspected digest and
 version; admission and predecessor supersession commit together. Revision checks
 the expected latest base digest to avoid silently linking a stale edit to a new
@@ -26,11 +26,14 @@ not actual reliance or real-world outcomes. `check` re-evaluates them and return
 nonzero for empty context. No executable hooks, host authentication, automatic
 admission, LLM extraction, cross-project sharing or outcome-learning module ships.
 
-The portable skill is a workflow aid. Initial installation is from a source
-checkout; there is no PyPI publication or host marketplace release. SQLite scans
-and full integrity verification favor auditability over scale in this small v0.
+The portable skill is a workflow aid. Install the Python runtime directly from
+Git or a checkout, then use `setup` to prepare project-local skill directories.
+Setup bundles the workflow, example and schema with a selected local store path;
+it preserves existing files and never admits judgments or installs hooks. There
+is no PyPI publication or host marketplace release. SQLite scans and full
+integrity verification favor auditability over scale in this small v0.
 
-Next work should follow usage: one host adapter with tested invocation, a
+Next work should follow usage: live-host invocation tests, one bounded hook adapter, a
 comfortable terminal review flow, bounded ADF import, and a fair memory-notes
 experiment. Strong owner/agent isolation requires a different authority boundary,
 not another command-line flag.

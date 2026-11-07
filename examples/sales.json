@@ -1,0 +1,40 @@
+{
+  "name": "ground-outbound-in-buying-signals",
+  "description": "A sales lead asks agents to ground outbound personalization in verified account signals.",
+  "judgment": {
+    "statement": "Personalize outbound with verified account signals. When no buying signal is established, use a neutral introduction rather than inventing urgency or intent.",
+    "kind": "conditional_guidance",
+    "rationale": "Fabricated buying intent undermines trust and creates repeated review work."
+  },
+  "applicability": {
+    "scope": "sales/outbound",
+    "when": [
+      {
+        "field": "verified_buying_signal",
+        "equals": false
+      }
+    ],
+    "limits": [
+      "Synthetic example only.",
+      "Does not authorize sending an email or override outreach permissions.",
+      "Reassess when new account evidence establishes an actual buying signal."
+    ]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "decision_maker": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:00:00Z",
+    "capture_method": "explicit",
+    "source_refs": [
+      "synthetic://outbound/correction/1"
+    ]
+  },
+  "evidence": [
+    {
+      "reference": "synthetic://outbound/correction/1",
+      "role": "supports",
+      "summary": "Explicit synthetic sales guidance, not a measured outcome."
+    }
+  ]
+}

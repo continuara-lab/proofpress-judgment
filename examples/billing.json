@@ -1,0 +1,23 @@
+{
+  "name": "billing-dispute-routing",
+  "description": "A human asks support agents to route unresolved reconciliation disputes to Finance.",
+  "judgment": {
+    "statement": "Ask Finance to review unresolved reconciliation disputes before proposing a resolution.",
+    "kind": "conditional_guidance",
+    "rationale": "Finance owns reconciliation and can check payment records."
+  },
+  "applicability": {
+    "scope": "support/billing",
+    "when": [{"field": "unresolved_dispute", "equals": true}],
+    "limits": ["Synthetic example only.", "Not for routine invoice-copy requests; does not authorize refunds."]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "decision_maker": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:00:00Z",
+    "capture_method": "explicit",
+    "source_refs": ["synthetic://billing-demo/message/1"]
+  },
+  "evidence": [{"reference": "synthetic://billing-demo/message/1", "role": "supports", "summary": "Explicit synthetic owner instruction."}]
+}

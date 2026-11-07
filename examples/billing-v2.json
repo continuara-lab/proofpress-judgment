@@ -1,0 +1,23 @@
+{
+  "name": "billing-dispute-routing",
+  "description": "A human narrows Finance review to unresolved disputes over $100.",
+  "judgment": {
+    "statement": "Ask Finance to review unresolved reconciliation disputes over $100.",
+    "kind": "conditional_guidance",
+    "rationale": "The synthetic owner clarified that smaller disputes follow the support process."
+  },
+  "applicability": {
+    "scope": "support/billing",
+    "when": [{"field": "unresolved_dispute", "equals": true}, {"field": "over_100", "equals": true}],
+    "limits": ["Synthetic example only.", "A caller must derive over_100 from authoritative amounts; no refund authority."]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "decision_maker": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:05:00Z",
+    "capture_method": "explicit",
+    "source_refs": ["synthetic://billing-demo/message/2"]
+  },
+  "evidence": [{"reference": "synthetic://billing-demo/message/2", "role": "supports"}]
+}

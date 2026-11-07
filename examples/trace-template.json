@@ -1,0 +1,11 @@
+{
+  "name": "imported-billing-judgment",
+  "description": "A synthetic TRACE decision, imported for local review.",
+  "kind": "conditional_guidance",
+  "applicability": {
+    "scope": "support/billing",
+    "when": [{"field": "unresolved_dispute", "equals": true}],
+    "limits": ["Synthetic only; source acceptance grants no receiver-local authority."]
+  },
+  "evidence": []
+}

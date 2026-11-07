@@ -1,0 +1,16 @@
+{
+  "trace_version": "0.5.1",
+  "id": "trace_synthetic_billing",
+  "events": [{
+    "id": "evt_001", "session_id": "trace_synthetic_billing", "type": "decision",
+    "timestamp": "2026-11-07T12:00:00Z",
+    "actor": {"type": "ai", "id": "agent:assistant"},
+    "decision": {
+      "description": "Ask Finance to review unresolved reconciliation disputes.",
+      "rationale": "Finance owns reconciliation.",
+      "proposed_by": {"type": "ai", "id": "agent:assistant"},
+      "disposition": "accepted",
+      "resolved_by": {"type": "human", "id": "human:source-owner"}
+    }
+  }]
+}

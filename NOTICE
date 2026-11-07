@@ -1,0 +1,20 @@
+Judgment Layer
+Copyright 2026 Continuara Labs contributors
+
+The local lifecycle design adapts mechanisms studied in Proofpress
+(Apache-2.0): evidence-bound candidates, manual admission, exact-version
+supersession/withdrawal, eligible context and receipt-based reuse checks.
+https://github.com/chenmingtang830/proofpress
+Inspected revision: a8660cdc2826f21281c022f5975aaef4651d7b95
+
+The provenance bridge follows TRACE's decision/proposer/recorder/disposition
+separation (Apache-2.0). TRACE remains the upstream protocol and capture tool.
+https://github.com/Thru-Echoes/TRACE
+Inspected revision: d18a0bd1bf36eb625836fbbab78ae4bbd78c0db9
+
+Agent Decision Format is an earlier private working draft maintained by
+Continuara Labs. Its inspected revision was c042c4377da1c8907d71ca7be1a370f6b57eac85.
+AJF is a new local draft and does not grant or change rights in ADF or AFF.
+
+No upstream runtime is vendored. These are bounded reimplementations and a
+provenance mapper, not assertions of protocol ratification or endorsement.

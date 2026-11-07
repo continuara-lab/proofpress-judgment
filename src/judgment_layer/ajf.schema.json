@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Judgment Format 0.1-draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ajf_version", "id", "version", "name", "description", "judgment", "applicability", "provenance", "evidence", "links"],
+  "properties": {
+    "ajf_version": {"const": "0.1-draft"},
+    "id": {"type": "string", "pattern": "^jgm_[a-f0-9]{32}$"},
+    "version": {"type": "integer", "minimum": 1},
+    "name": {"$ref": "#/$defs/text"},
+    "description": {"$ref": "#/$defs/text"},
+    "judgment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["statement", "kind", "rationale"],
+      "properties": {
+        "statement": {"$ref": "#/$defs/text"},
+        "kind": {"enum": ["conditional_guidance", "case", "hypothesis", "constraint"]},
+        "rationale": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]}
+      }
+    },
+    "applicability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scope", "when", "limits"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/text"},
+        "when": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["field", "equals"],
+          "properties": {
+            "field": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"},
+            "equals": {"type": ["string", "number", "boolean", "null"]}
+          }
+        }},
+        "limits": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/text"}},
+        "valid_from": {"type": "string", "format": "date-time"},
+        "valid_until": {"type": "string", "format": "date-time"}
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin", "recorded_by", "recorded_at", "capture_method", "source_refs"],
+      "properties": {
+        "origin": {"enum": ["human_guidance", "human_judgment", "agent_judgment", "agent_assumption", "unknown"]},
+        "decision_maker": {"$ref": "#/$defs/text"},
+        "recorded_by": {"$ref": "#/$defs/text"},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "capture_method": {"enum": ["explicit", "extracted", "imported"]},
+        "source_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/text"}}
+      }
+    },
+    "evidence": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference", "role"],
+      "properties": {
+        "reference": {"$ref": "#/$defs/text"},
+        "role": {"enum": ["supports", "challenges", "context"]},
+        "summary": {"$ref": "#/$defs/text"}
+      }
+    }},
+    "links": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["relation", "id", "version", "digest"],
+      "properties": {
+        "relation": {"enum": ["revises", "depends_on"]},
+        "id": {"type": "string", "pattern": "^jgm_[a-f0-9]{32}$"},
+        "version": {"type": "integer", "minimum": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    }},
+    "extensions": {"type": "object"}
+  },
+  "$defs": {"text": {"type": "string", "minLength": 1, "pattern": "\\S"}}
+}

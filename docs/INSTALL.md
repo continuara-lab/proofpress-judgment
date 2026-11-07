@@ -14,7 +14,8 @@ git clone https://github.com/continuara-lab/judgment-layer.git
 From the project you want to connect, run `bash /path/to/judgment-layer/install.sh`.
 The script installs uv if needed without editing shell profiles, installs the
 CLI and prepares all 12 skill entry points. It uses `human:<OS username>` as a
-local owner label, not authentication. Admission stays manual. The installer
+local owner label for new stores, not authentication. Existing owners are kept.
+Admission stays manual. The installer
 prints PATH instructions if the command directory is not already on your PATH.
 
 For selected agents, pass setup arguments explicitly:

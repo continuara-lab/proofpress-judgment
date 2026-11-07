@@ -29,7 +29,11 @@ fi
 "$judgment_uv" tool install --upgrade --python 3.11 "$judgment_source"
 judgment_bin="$("$judgment_uv" tool dir --bin)"
 if [[ $# -eq 0 ]]; then
-  set -- --all --owner "human:$(id -un)"
+  if [[ -e .judgment ]]; then
+    set -- --all
+  else
+    set -- --all --owner "human:$(id -un)"
+  fi
 fi
 "$judgment_bin/judgment" setup "$@"
 case ":$PATH:" in

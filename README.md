@@ -2,150 +2,120 @@
 
 **Your team's judgment. Built into your agents.**
 
-A CLI-first, local prototype for capturing judgments, reviewing exact revisions,
-reusing applicable advice, and revising or withdrawing it. AJF (Agent Judgment
-Format) lives in the same repository. Default admission is **manual**. No model,
-cloud service, API key or running server is needed after installation.
+Turn everyday guidance into expertise agents can build on. Keep the reasons,
+conditions and limits behind each judgment available for review and revision.
 
-**Status: 0.1.0a1, experimental.** This is a functioning local lifecycle, not a
-benchmark result, autonomous capture system, production enforcement platform or
-public standard. This repository may initially be private; an Apache-2.0 license
-does not mean a public launch or package publication has occurred.
+Judgment Layer is a local CLI for judgments made by people and agents. Capture a
+judgment, review it, supply it to a later task, and revise or withdraw it as your
+understanding changes.
 
-## Install from a checkout
+**Early prototype · CLI-first · Manual admission · Apache-2.0**
 
-Python 3.11 or newer:
+## Carry expertise forward
+
+You tell an agent: “Ask Finance to review unresolved billing disputes.” On another
+run, that guidance can help again—but only in the situations it was meant for.
+Later, you narrow it: “Finance review is needed only for disputes over $100.”
+
+Judgment Layer keeps the original guidance, its reasons and conditions, and the
+review history. You review the new version before it replaces the old one. If
+the old guidance is wrong, you can withdraw it immediately.
+
+The aim is less repeated steering in familiar situations, with room to question
+old assumptions when circumstances change. Better task outcomes and reduced
+steering remain hypotheses to test.
+
+## Follow one judgment through its lifecycle
+
+| Step | What happens |
+| --- | --- |
+| **Capture** | Save human guidance or an agent's judgment with its source, reasons and conditions. |
+| **Review** | Inspect the evidence and limits; accept, reject or request changes to that exact version. |
+| **Reuse** | Supply reviewed judgments whose scope and explicit conditions match the task facts. |
+| **Revise** | Propose a new version; review it before it replaces the active version. |
+| **Withdraw** | Remove a judgment from future reuse while preserving its history. |
+
+A useful review asks: **Should later agents receive this advice, and under which
+conditions?** An approval records that choice; it cannot establish that the
+reviewer independently assessed the merits. Sources, rationale and limits remain
+visible so the judgment can be challenged.
+
+## Try the local walkthrough
+
+Requires Python 3.11 or newer. From a checkout:
 
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
-.venv/bin/judgment --help
+.venv/bin/python examples/walkthrough.py --synthetic-review-fixture
 ```
 
-Install dependencies once; normal commands run offline. `--workspace` is a global
-option and goes **before** the command. It defaults to `.judgment` in the current
-directory. Store files are gitignored. Do not commit private sessions or stores.
+The walkthrough uses a temporary store and synthetic owner-review fixtures. It
+checks three situations:
 
-## Run the manual loop
+- **Valid reuse:** reviewed guidance is supplied when its conditions match.
+- **Outside scope:** a similar task with different facts receives no applicable guidance.
+- **Changed guidance:** replacement or withdrawal makes old receipts fail a fresh check.
 
-The examples are synthetic. Inspect the source JSON, provenance, conditions and
-limits before using the explicit manual-review commands. Replace ID and DIGEST
-with the values returned by capture. The local identities are self-asserted.
+Normal commands run offline after installation. No model, API key or server is
+required. The walkthrough verifies lifecycle mechanics; it does not run a live
+agent or measure judgment quality.
+
+## Use it in your own workflow
 
 ```sh
 .venv/bin/judgment init --owner human:me
 .venv/bin/judgment capture --from examples/billing.json
 .venv/bin/judgment inbox
-.venv/bin/judgment show ID --version 1 --format markdown
-
-# Before admission, context contains no usable judgment.
-.venv/bin/judgment context --scope support/billing --facts examples/facts.json \
-  --actor agent:session-b --purpose 'Route a synthetic dispute'
-
-# Human operator only: bind review to the inspected revision and digest.
-.venv/bin/judgment review ID --version 1 --digest DIGEST --admit \
-  --reason 'Reviewed source, rationale and scope for this synthetic case' --confirm
-
-.venv/bin/judgment context --scope support/billing --facts examples/facts.json \
-  --actor agent:session-b --purpose 'Route a synthetic dispute'
-
-# New candidate; previous admission does not cover its changed contents.
-.venv/bin/judgment revise ID --from examples/billing-v2.json \
-  --base-digest DIGEST --reason 'Owner narrowed the scope'
-.venv/bin/judgment show ID --version 2
 ```
 
-Review version 2 with its **new digest**, using the same review command. Its
-admission atomically supersedes version 1. While version 2 is pending, the old
-admitted version remains usable if its conditions still hold. If the old version
-is wrong, **withdraw it immediately** rather than wait for replacement review.
+`capture` creates a **candidate**. Follow the [CLI guide](docs/CLI.md) to inspect
+it, review its exact version and digest, retrieve applicable guidance, and revise
+or withdraw it. Admission means a judgment is approved for local reuse.
 
-```sh
-.venv/bin/judgment withdraw ID --version 2 --digest NEW_DIGEST \
-  --reason 'This guidance is no longer applicable' --confirm
-.venv/bin/judgment explain ID
-.venv/bin/judgment audit
-```
+Your agent or application calls `context` with the task's scope and facts. The
+result includes matching judgments and a receipt of what was supplied. You can
+recheck that receipt later with `check`. Supplied guidance is advice; the receipt
+does not prove the agent used it or authorize a business action.
 
-`review --reject` and `review --request-changes` also require a version, digest,
-reason and confirmation. `revise` can replace a pending or changes-requested
-candidate without changing its historical content. Rejected or withdrawn records
-cannot simply be re-admitted; create and review a new revision.
+For agent-assisted use, the [workflow skill](plugins/judgment-layer/skills/judgment-layer/SKILL.md)
+explains candidate capture and reuse. Human review stays separate. Installing the
+Python package does not install the skill or change a host's configuration.
 
-## Reuse and stale receipts
+## Know the current boundaries
 
-`context` persists a receipt with the exact revision IDs/digests, scope, facts,
-actor, purpose and policy digest. The output is supplied **advice**, not proof
-that the model used it. Descriptive limits remain visible; they are not executable
-predicates. A `constraint` kind does not install an execution binding.
+- **Capture is explicit.** Write an AJF record or import a selected TRACE decision. Automatic extraction from chat is future work.
+- **Admission is manual.** Every new version needs local review. Source acceptance in TRACE does not grant local approval.
+- **Matching is conservative.** Scope and scalar conditions must match supplied facts. Missing facts exclude the judgment; prose limits still need interpretation.
+- **Checks are local.** There are no installed action hooks or automatic pauses. A receipt check and an external action can race.
+- **Identity is cooperative.** Processes under your OS account can invoke owner commands. The confirmation flag is not authentication.
 
-```sh
-.venv/bin/judgment check --receipt ctx_RECEIPT_ID --facts examples/facts.json
-```
+Read the [security boundaries](SECURITY.md) before connecting real workflows.
+Default capture guidance lives in `.judgment/config.json`; `judgment policy`
+shows it. Keep private stores and sessions out of Git.
 
-`check` fails after withdrawal, supersession, expiry, invalid dependencies,
-changed facts or policy, or when the receipt was empty. It checks stored state,
-not caller-edited receipt content. Exit codes: **0** success, **2** invalid input
-or rejected operation, **3** receipt no longer usable.
+## Explore the format and implementation
 
-Conditions are conservative exact-scalar equality checks against supplied facts;
-scope is exact, not semantic similarity. Missing facts fail closed. The caller
-must obtain truthful facts from the actual environment. A model saying a fact is
-true does not verify it. `check` and an external tool action are not atomic, and
-this release installs **no runtime hooks or action interception**.
+AJF—**Agent Judgment Format**—lives in this repository. It describes portable
+judgment content. Local governance separately decides which versions may be
+reused. The design draws on TRACE's decision provenance and Proofpress's
+governance lifecycle.
 
-## Import TRACE provenance
+| Resource | What you will find |
+| --- | --- |
+| [CLI guide](docs/CLI.md) | Review, reuse, revision, withdrawal, receipts and TRACE import commands |
+| [AJF specification](docs/AJF.md) | Judgment fields, provenance, applicability and format boundaries |
+| [Complete AJF example](examples/full-judgment.json) | One synthetic record ready for validation |
+| [JSON Schema](src/judgment_layer/ajf.schema.json) | The validator's bundled format definition |
+| [Architecture](docs/ARCHITECTURE.md) | Local storage, lifecycle events and current eligibility |
+| [Upstream mechanisms](docs/UPSTREAM.md) | What comes from TRACE, Proofpress and the earlier ADF draft |
+| [Evaluation plan](evals/README.md) | The proposed comparison with strong maintained notes; no results yet |
 
-```sh
-.venv/bin/judgment import-trace --session examples/trace-session.json \
-  --event evt_001 --template examples/trace-template.json --recorded-by agent:importer
-```
-
-The bridge accepts one explicit decision from a TRACE 0.5.0/0.5.1 export. The
-template supplies local applicability and presentation; the original statement,
-rationale, explicit proposer and historical disposition are preserved. Source
-digests refer to canonical parsed JSON, not raw file bytes or authenticated
-signatures. Source `accepted` still becomes a **local candidate**, not admission.
-This is a bounded mapper, not a full TRACE-session/schema validator or a live MCP
-connection. See [upstream mechanisms](docs/UPSTREAM.md).
-
-## Defaults and trust
-
-`judgment policy` displays `.judgment/config.json`. Capture-origin filters are
-enforced; prose capture guidance is for the agent to follow. This version does
-not extract decisions from free-form chat automatically. A user or an agent must
-write an explicit record or invoke the TRACE importer.
-
-Only manual admission is implemented. An `automatic` configuration is rejected,
-not silently enabled. Future Owner-policy admission requires a separate design;
-it must never be confused with a proposer approving itself.
-
-**Local cooperative trust:** `--confirm` is an explicit operator gesture, not
-authentication. Every process under your OS account can invoke the CLI or modify
-the files. The owner label and hash chain do not isolate a malicious agent, prove
-source truth, or prevent rewriting an entire store. See [security boundaries](SECURITY.md).
-
-## Plugin and AJF
-
-- [Agent workflow skill](plugins/judgment-layer/skills/judgment-layer/SKILL.md):
-  a portable instruction bundle, not an installed host integration. No client
-  configuration is changed by installation of the Python package.
-- [AJF specification](docs/AJF.md): portable content is separate from local governance.
-- [JSON Schema](src/judgment_layer/ajf.schema.json): the bundled validation source.
-- [Architecture and scope](docs/ARCHITECTURE.md): state, receipts and next boundaries.
-
-There is no ADF auto-migration in this release. Existing ADF records and immutable
-IDs remain unchanged; an explicit conversion needs human-defined applicability
-and must preserve historical disposition without importing authority.
-
-## Validate the implementation
+## Run the tests
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python examples/walkthrough.py --synthetic-review-fixture
 ```
 
-Tests use temporary stores and synthetic manual-owner fixtures. They establish
-mechanical lifecycle behavior, not judgment quality or real human approval.
-No production traces are included. See [evaluation plan](evals/README.md) for the
-separate, not-yet-run notes comparison.
+Tests cover manual admission, conditional reuse, immutable revisions,
+supersession, withdrawal, stale receipts, dependencies and TRACE import.

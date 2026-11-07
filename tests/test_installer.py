@@ -11,9 +11,11 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'install.sh'
 
 class InstallerTests(unittest.TestCase):
     def test_piped_install_defaults_and_setup_failure_paths(self):
-        for failure in ('none', 'git', 'uv'):
+        for failure in ('none', 'existing', 'git', 'uv'):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
+                if failure == 'existing':
+                    (root / '.judgment').mkdir()
                 tools = root / 'tools'
                 tools.mkdir()
                 log = root / 'log'
@@ -33,11 +35,14 @@ if name=='uv' and sys.argv[1:]==['tool','dir','--bin']: print(os.environ['TEST_B
                 result = subprocess.run(['/bin/bash'], input=SCRIPT.read_text(), cwd=root,
                                         env=env, text=True, capture_output=True)
                 calls = [json.loads(x) for x in log.read_text().splitlines()]
-                if failure == 'none':
+                if failure in ('none', 'existing'):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     setup = next(x for x in calls if x[0] == 'judgment')
-                    self.assertEqual(setup[1:4], ['setup', '--all', '--owner'])
-                    self.assertTrue(setup[4].startswith('human:'))
+                    if failure == 'existing':
+                        self.assertEqual(setup[1:], ['setup', '--all'])
+                    else:
+                        self.assertEqual(setup[1:4], ['setup', '--all', '--owner'])
+                        self.assertTrue(setup[4].startswith('human:'))
                 else:
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(any(x[0] == 'judgment' for x in calls))

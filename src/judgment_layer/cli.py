@@ -1,13 +1,15 @@
-"""CLI-first, explicit manual review. All automation-facing output is JSON."""
+"""Explicit manual review. Lifecycle output is JSON; setup also has a text view."""
 import argparse
 import json
 import sqlite3
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 from .model import JudgmentError, render, validate
 from .store import Store, initialize
 from .importers import from_trace
+from .setup import AGENTS, setup
 
 
 def load(path):
@@ -26,6 +28,16 @@ def parser():
     p = argparse.ArgumentParser(description="Capture, manually review and reuse scoped judgments locally.")
     p.add_argument("--workspace", default=".judgment", help="Store directory; default .judgment in current directory")
     sub = p.add_subparsers(dest="command", required=True)
+    s = sub.add_parser("setup", help="Connect agent skills to a manual-only workspace in this project")
+    group = s.add_mutually_exclusive_group(required=True)
+    group.add_argument("--all", action="store_true", help="Prepare skill entry points for all listed agents")
+    group.add_argument("--agents", nargs="+", choices=sorted(AGENTS))
+    s.add_argument("--project", default=".", help="Project directory; no home configuration is changed")
+    s.add_argument("--owner", help="Required for a new workspace: human:<name>")
+    s.add_argument("--dry-run", action="store_true", help="Preview paths without changing files")
+    s.add_argument("--format", choices=["text", "json"], default="text")
+    sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    sub.add_parser("schema", help="Print the bundled AJF JSON Schema")
     s = sub.add_parser("init", help="Initialize a manual-only local workspace")
     s.add_argument("--owner", required=True, help="Self-asserted local human:<name> identity")
     s = sub.add_parser("capture", help="Store an explicit AJF candidate; never admits")
@@ -77,6 +89,13 @@ def parser():
 
 
 def run(args):
+    if args.command == "setup":
+        return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
+                     args.owner, args.dry_run)
+    if args.command == "example":
+        return json.loads(files("judgment_layer").joinpath("skill/references/coding.json").read_text())
+    if args.command == "schema":
+        return json.loads(files("judgment_layer").joinpath("ajf.schema.json").read_text())
     if args.command == "init":
         return initialize(args.workspace, args.owner)
     if args.command == "validate":
@@ -121,7 +140,18 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         result = run(args)
-        if args.command == "show" and args.format == "markdown":
+        if args.command == "setup" and args.format == "text":
+            print("Judgment Layer setup preview" if result["dry_run"] else "Judgment Layer is ready")
+            print("Store: " + result["workspace"])
+            print(f"Agents: {len(result['agents'])} skill entry points. Manual approval. No action hooks.")
+            if result["dry_run"]:
+                for path in result["skill_directories"]:
+                    print("Would install: " + path)
+            else:
+                print("Next: reload agent skills, then ask your agent to use judgment-layer.")
+            if "hermes" in result["agents"]:
+                print("Hermes: inspect and trust the Git project with `hermes skills trust`.")
+        elif args.command == "show" and args.format == "markdown":
             print(render(result["record"]), end="")
         elif args.command == "context" and args.format == "markdown":
             print("<!-- Context receipt: " + result["receipt"]["receipt_id"] + " -->")

@@ -1,0 +1,40 @@
+{
+  "name": "one-claim-with-evidence",
+  "description": "A founder asks agents to keep a pitch slide focused on one claim with visible support.",
+  "judgment": {
+    "statement": "For each pitch slide, lead with one substantive claim, show its supporting evidence, and move detailed methods to the appendix.",
+    "kind": "conditional_guidance",
+    "rationale": "An audience cannot evaluate a claim hidden among several competing points and unexplained numbers."
+  },
+  "applicability": {
+    "scope": "writing/pitch-slides",
+    "when": [
+      {
+        "field": "audience",
+        "equals": "investors"
+      }
+    ],
+    "limits": [
+      "Synthetic example only.",
+      "Not a universal rule for teaching decks or technical reference slides.",
+      "Use only verified metrics and distinguish proposed experiments from results."
+    ]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "decision_maker": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:00:00Z",
+    "capture_method": "explicit",
+    "source_refs": [
+      "synthetic://one-claim-with-evidence/correction/1"
+    ]
+  },
+  "evidence": [
+    {
+      "reference": "synthetic://one-claim-with-evidence/correction/1",
+      "role": "supports",
+      "summary": "Explicit synthetic guidance; not a measured task outcome."
+    }
+  ]
+}

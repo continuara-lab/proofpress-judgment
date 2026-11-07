@@ -1,0 +1,40 @@
+{
+  "name": "reuse-product-components",
+  "description": "A designer asks agents to reuse approved components when extending an existing product interface.",
+  "judgment": {
+    "statement": "Reuse existing product components and design tokens before introducing a new visual pattern.",
+    "kind": "conditional_guidance",
+    "rationale": "One-off components diverge from the product and create repeated design review and maintenance work."
+  },
+  "applicability": {
+    "scope": "design/product-ui",
+    "when": [
+      {
+        "field": "shared_design_system",
+        "equals": true
+      }
+    ],
+    "limits": [
+      "Synthetic example only.",
+      "Applies to existing product interfaces, not unconstrained concept exploration.",
+      "A missing component or accessibility problem can justify proposing a new pattern for review."
+    ]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "decision_maker": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:00:00Z",
+    "capture_method": "explicit",
+    "source_refs": [
+      "synthetic://reuse-product-components/correction/1"
+    ]
+  },
+  "evidence": [
+    {
+      "reference": "synthetic://reuse-product-components/correction/1",
+      "role": "supports",
+      "summary": "Explicit synthetic guidance; not a measured task outcome."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "change-the-source-not-generated-files",
+  "description": "A developer asks coding agents to change the source schema and regenerate the client rather than patch generated files.",
+  "judgment": {
+    "statement": "Change the source schema and regenerate the client instead of editing generated SDK files directly.",
+    "kind": "conditional_guidance",
+    "rationale": "The next generator run overwrites hand edits; the source and generated client must stay reproducible."
+  },
+  "applicability": {
+    "scope": "coding/generated-files",
+    "when": [
+      {
+        "field": "generated_file",
+        "equals": true
+      }
+    ],
+    "limits": [
+      "Synthetic example only.",
+      "Does not decide whether a file is generated; establish that from the repository.",
+      "If regeneration is unavailable or would introduce unrelated changes, pause and ask rather than bypassing the guidance."
+    ]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "decision_maker": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:00:00Z",
+    "capture_method": "explicit",
+    "source_refs": [
+      "synthetic://change-the-source-not-generated-files/correction/1"
+    ]
+  },
+  "evidence": [
+    {
+      "reference": "synthetic://change-the-source-not-generated-files/correction/1",
+      "role": "supports",
+      "summary": "Explicit synthetic guidance; not a measured task outcome."
+    }
+  ]
+}

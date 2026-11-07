@@ -2,120 +2,91 @@
 
 **Your team's judgment. Built into your agents.**
 
-Turn everyday guidance into expertise agents can build on. Keep the reasons,
-conditions and limits behind each judgment available for review and revision.
+Your agent gets something wrong. You steer it. It acknowledges the correction.
+A few days later, it makes the same mistake.
 
-Judgment Layer is a local CLI for judgments made by people and agents. Capture a
-judgment, review it, supply it to a later task, and revise or withdraw it as your
-understanding changes.
+The guidance is in memory. It's in a skill. Why didn't it carry forward?
 
-**Early prototype · CLI-first · Manual admission · Apache-2.0**
+Remembering a correction doesn't settle when it applies, why it matters, who
+approved it, or when it should stop shaping the agent's work.
 
-## Carry expertise forward
+We're building the missing layer for agent judgments: turn everyday steering
+and agent-made judgments into expertise you can inspect, approve, reuse and
+revise. The aim is fewer repeated mistakes and less repeated explanation.
 
-You tell an agent: “Ask Finance to review unresolved billing disputes.” On another
-run, that guidance can help again—but only in the situations it was meant for.
-Later, you narrow it: “Finance review is needed only for disputes over $100.”
+**Early prototype · Local CLI + agent skill · Manual approval · Apache-2.0**
 
-Judgment Layer keeps the original guidance, its reasons and conditions, and the
-review history. You review the new version before it replaces the old one. If
-the old guidance is wrong, you can withdraw it immediately.
+## Install in your project
 
-The aim is less repeated steering in familiar situations, with room to question
-old assumptions when circumstances change. Better task outcomes and reduced
-steering remain hypotheses to test.
+With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed,
+run this from the project where your agent works:
 
-## Follow one judgment through its lifecycle
+```sh
+uv tool install --python 3.11 git+https://github.com/continuara-lab/judgment-layer.git && judgment setup --all --owner human:me
+```
 
-| Step | What happens |
+This installs the Python CLI, creates a private local judgment store, and adds
+skill entry points for **12 agents**. Nothing is automatically approved. The
+repository is currently private, so installation requires GitHub repository
+access. There is no published npm or PyPI package yet.
+
+Restart your agent or reload its skills, then ask:
+
+> Use judgment-layer. When I make a meaningful correction, capture the judgment,
+> why it matters and when it applies. Show me what needs review. Before related
+> work, retrieve the judgments I've approved.
+
+Entry points cover Codex, Claude Code, Cursor, Devin CLI, Grok Build, Gemini CLI,
+Hermes, OpenClaw, Copilot CLI, OpenCode, Windsurf and Cline. These use documented
+skill directories; they have **not all been tested in live agent sessions**.
+Hermes needs project trust. Remote agents need their own CLI and store setup.
+See [agent setup](docs/AGENTS.md) for details or to install for just one agent.
+
+## Make a correction useful next time
+
+“Don't edit generated SDK files. Change the source schema and regenerate.”
+
+An agent can capture that judgment, its source, the reason hand edits get
+overwritten, and the condition **this file is generated**. You inspect and
+approve the exact version. A later agent can retrieve it for a matching task.
+If the conditions change, propose a revision; if the guidance is wrong, withdraw
+it. Old versions remain inspectable and withdrawn versions stop being returned.
+
+The same loop applies to familiar work:
+
+| Workflow | Judgment worth carrying forward |
 | --- | --- |
-| **Capture** | Save human guidance or an agent's judgment with its source, reasons and conditions. |
-| **Review** | Inspect the evidence and limits; accept, reject or request changes to that exact version. |
-| **Reuse** | Supply reviewed judgments whose scope and explicit conditions match the task facts. |
-| **Revise** | Propose a new version; review it before it replaces the active version. |
-| **Withdraw** | Remove a judgment from future reuse while preserving its history. |
+| [Coding](examples/coding.json) | Change the source and regenerate; avoid patches the generator will overwrite. |
+| [Design](examples/design.json) | Reuse product components; propose exceptions when existing patterns fall short. |
+| [Summaries](examples/summary.json) | Preserve uncertainty so tentative findings don't become false facts. |
+| [Slide decks](examples/slides.json) | Lead a pitch slide with one supported claim; keep detailed methods available. |
 
-A useful review asks: **Should later agents receive this advice, and under which
-conditions?** An approval records that choice; it cannot establish that the
-reviewer independently assessed the merits. Sources, rationale and limits remain
-visible so the judgment can be challenged.
+Capture → human review → applicable reuse → revision or withdrawal.
 
-## Try the local walkthrough
+Capture creates a candidate. Approval makes it eligible for local reuse; it
+doesn't prove it correct. Agent capture is skill-guided, not automatic extraction
+of every correction. Better task outcomes remain to be measured against strong,
+maintained memory notes.
 
-Requires Python 3.11 or newer. From a checkout:
+## What about enforcement?
 
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
-.venv/bin/python examples/walkthrough.py --synthetic-review-fixture
-```
+**Today:** the CLI manages which judgments can be supplied and rechecks whether
+a supplied version is still eligible. The skill asks the agent to follow that
+advice. This release installs **no action hooks**.
 
-The walkthrough uses a temporary store and synthetic owner-review fixtures. It
-checks three situations:
+**Next:** bind specific, testable constraints to tool hooks. A write hook could
+check a file's generated status and block a direct edit before it happens. That
+requires a real host adapter and action-level checks; remembering the rule or
+passing a receipt check does not enforce it. Open-ended design or research
+judgments still need assessment. See the [hook plan](docs/HOOKS.md).
 
-- **Valid reuse:** reviewed guidance is supplied when its conditions match.
-- **Outside scope:** a similar task with different facts receives no applicable guidance.
-- **Changed guidance:** replacement or withdrawal makes old receipts fail a fresh check.
+## Go deeper
 
-Normal commands run offline after installation. No model, API key or server is
-required. The walkthrough verifies lifecycle mechanics; it does not run a live
-agent or measure judgment quality.
+- [CLI guide](docs/CLI.md): inspect, review, reuse, revise and withdraw.
+- [AJF format](docs/AJF.md): portable judgment content, separate from approval.
+- [Architecture](docs/ARCHITECTURE.md): TRACE provenance + Proofpress lifecycle.
+- [Evaluation plan](evals/README.md): compare judgment management with maintained notes.
+- [Security boundaries](SECURITY.md): cooperative local trust; not an adversarial gate.
 
-## Use it in your own workflow
-
-```sh
-.venv/bin/judgment init --owner human:me
-.venv/bin/judgment capture --from examples/billing.json
-.venv/bin/judgment inbox
-```
-
-`capture` creates a **candidate**. Follow the [CLI guide](docs/CLI.md) to inspect
-it, review its exact version and digest, retrieve applicable guidance, and revise
-or withdraw it. Admission means a judgment is approved for local reuse.
-
-Your agent or application calls `context` with the task's scope and facts. The
-result includes matching judgments and a receipt of what was supplied. You can
-recheck that receipt later with `check`. Supplied guidance is advice; the receipt
-does not prove the agent used it or authorize a business action.
-
-For agent-assisted use, the [workflow skill](plugins/judgment-layer/skills/judgment-layer/SKILL.md)
-explains candidate capture and reuse. Human review stays separate. Installing the
-Python package does not install the skill or change a host's configuration.
-
-## Know the current boundaries
-
-- **Capture is explicit.** Write an AJF record or import a selected TRACE decision. Automatic extraction from chat is future work.
-- **Admission is manual.** Every new version needs local review. Source acceptance in TRACE does not grant local approval.
-- **Matching is conservative.** Scope and scalar conditions must match supplied facts. Missing facts exclude the judgment; prose limits still need interpretation.
-- **Checks are local.** There are no installed action hooks or automatic pauses. A receipt check and an external action can race.
-- **Identity is cooperative.** Processes under your OS account can invoke owner commands. The confirmation flag is not authentication.
-
-Read the [security boundaries](SECURITY.md) before connecting real workflows.
-Default capture guidance lives in `.judgment/config.json`; `judgment policy`
-shows it. Keep private stores and sessions out of Git.
-
-## Explore the format and implementation
-
-AJF—**Agent Judgment Format**—lives in this repository. It describes portable
-judgment content. Local governance separately decides which versions may be
-reused. The design draws on TRACE's decision provenance and Proofpress's
-governance lifecycle.
-
-| Resource | What you will find |
-| --- | --- |
-| [CLI guide](docs/CLI.md) | Review, reuse, revision, withdrawal, receipts and TRACE import commands |
-| [AJF specification](docs/AJF.md) | Judgment fields, provenance, applicability and format boundaries |
-| [Complete AJF example](examples/full-judgment.json) | One synthetic record ready for validation |
-| [JSON Schema](src/judgment_layer/ajf.schema.json) | The validator's bundled format definition |
-| [Architecture](docs/ARCHITECTURE.md) | Local storage, lifecycle events and current eligibility |
-| [Upstream mechanisms](docs/UPSTREAM.md) | What comes from TRACE, Proofpress and the earlier ADF draft |
-| [Evaluation plan](evals/README.md) | The proposed comparison with strong maintained notes; no results yet |
-
-## Run the tests
-
-```sh
-.venv/bin/python -m unittest discover -s tests -v
-```
-
-Tests cover manual admission, conditional reuse, immutable revisions,
-supersession, withdrawal, stale receipts, dependencies and TRACE import.
+For contributor checks and the synthetic coding walkthrough, see the
+[development instructions](docs/CLI.md#validate-the-implementation).

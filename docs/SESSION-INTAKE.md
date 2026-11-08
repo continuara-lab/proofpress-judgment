@@ -1,9 +1,10 @@
 # Session intake and contextual judgment design
 
-Status: accepted product direction; not shipped functionality. November 8, 2026.
-The current CLI accepts explicit AJF candidates and the playground records bounded
-capture sessions. It does not yet provide the onboarding or general history
-extraction described here.
+Status: product design plus initial implementation. November 8, 2026.
+[Current intake commands](INTAKE.md) implement session-local onboarding, capture
+policy, contextual AJF 0.3, observations and explicitly selected Codex import/
+extraction. Continuous capture listeners, nightly scheduling and automatic approval
+remain design work.
 
 ## Paxel reference
 

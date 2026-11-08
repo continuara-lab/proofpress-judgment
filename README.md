@@ -66,3 +66,6 @@ Proofpress CLI. Existing skill directories are not automatically migrated.
 
 Try the [hands-on playground](examples/playground/README.md) for capture/reuse,
 coding hooks and configurable model assessment. [Verified results](docs/PLAYGROUND.md).
+
+Start with `proofpress onboard` for session-local setup. [Capture policy, Codex
+history intake, AJF context and observations](docs/INTAKE.md).

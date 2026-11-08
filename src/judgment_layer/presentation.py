@@ -40,6 +40,17 @@ def record_lines(item, detailed=False, identity=True):
     if detailed:
         if r.get("description") and r["description"] != r["judgment"]["statement"]:
             lines.append("About  " + r["description"])
+        if r.get("context"):
+            lines.append("Situation  " + r["context"]["situation"])
+            if r["context"].get("goal"): lines.append("Goal  " + r["context"]["goal"])
+            lines += ["Constraint  " + x for x in r["context"].get("constraints",[])]
+            if r["context"].get("facts"): lines.append("Background facts  " + scalar(r["context"]["facts"]))
+        for alternative in r.get("alternatives",[]):
+            lines.append("Alternative  " + alternative["option"] + " · " + (alternative["reason_not_chosen"] or "Reason unknown"))
+        if r.get("expected_outcome"):
+            lines.append("Expected  " + r["expected_outcome"]["description"])
+            if r["expected_outcome"].get("verification"): lines.append("Verify  " + r["expected_outcome"]["verification"])
+        if r["judgment"].get("polarity"): lines.append("Polarity  " + r["judgment"]["polarity"])
         lines += ["Kind   " + r["judgment"]["kind"], "Why    " + (r["judgment"]["rationale"] or "Not recorded")]
         lines += applicability(r["applicability"])
         p = r["provenance"]
@@ -64,7 +75,8 @@ def agent_projection(command, result):
         return {"receipt_id":result["receipt"]["receipt_id"],
                 "judgments":[{**{k:x[k] for k in ("id","version","name")},
                               "judgment":x["record"]["judgment"],
-                              "applicability":x["record"]["applicability"]} for x in result["judgments"]],
+                              "applicability":x["record"]["applicability"],
+                              **{k:x["record"][k] for k in ("context","alternatives","expected_outcome") if k in x["record"]}} for x in result["judgments"]],
                 "boundary":result["boundary"], "holds":result.get("holds",[])}
     if isinstance(result, dict) and "record" in result:
         return {**{k:result[k] for k in ("id","version","name","state","digest")}, "flags":result.get("flags",[])}
@@ -84,10 +96,32 @@ def render_text(command, result):
         for item in result["judgments"]:
             lines += record_lines(item, identity=False)
             lines += ["Why    " + (item["record"]["judgment"]["rationale"] or "Not recorded")]
+            if item["record"].get("context"): lines.append("Situation  " + item["record"]["context"]["situation"])
+            if item["record"].get("expected_outcome"): lines.append("Expected  " + item["record"]["expected_outcome"]["description"])
             lines += applicability(item["record"]["applicability"])
         return "\n".join(lines)
     if command == "inbox":
         return "\n".join(f"{status(x['state'])}  {x['name']} v{x['version']}  {x['id']}" for x in result['judgments']) or "No pending judgments."
+    if command == "onboard":
+        p=result['capture_policy']
+        return "\n".join(["Proofpress · "+result['status'],"Project  "+result['project'],"Capture  "+", ".join(p['triggers']),
+                          "Review   manual", "History  "+p["history"], "Hooks    not installed",
+                          "Enabled" if result['status']=='enabled' else "Next  Repeat with --owner human:NAME --confirm to enable"])
+    if command == "capture-policy":
+        p=result['capture_policy']
+        return "\n".join(["Capture  "+", ".join(p['triggers']),"Extraction  "+p['extraction'],"Review  manual","History  "+p["history"]])
+    if command == "history" and "sessions" in result:
+        return "\n".join(x["session_id"]+"  "+x["path"] for x in result["sessions"]) or "No matching sessions."
+    if command == "history":
+        return "History · "+str(result['messages'])+" messages · "+str(result['pending_bytes'])+" bytes pending"+ (" · local import" if result.get('ok') else " · preview only")
+    if command == "consolidate":
+        return ("Pending  "+str(result['pending_batches'])+" batches · add --model-assessment to extract candidates") if 'pending_batches' in result else ("Captured  "+str(len(result['candidates']))+" candidates · manual review required")
+    if command == "observe":
+        return "Observation recorded · "+result['event_id']
+    if command == "observations":
+        return "\n".join(e['data']['observation']['kind']+" · "+e['data']['observation']['result']+" · "+e['data']['observation']['summary'] for e in result['observations']) or "No observations."
+    if command == "review-assist":
+        return "Review assistance · "+result['assessment']['choice']+" · "+str(len(result['flags']))+" flags · manual admission required"
     if command == "assess":
         return "No conflict flagged · candidate still needs review" if result["ok"] else "Paused · conflicting or uncertain judgment; inspect --json"
     if command == "bind":

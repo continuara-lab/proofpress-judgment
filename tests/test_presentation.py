@@ -59,7 +59,7 @@ class PresentationTests(unittest.TestCase):
         old=self.op(lambda s:s.capture(legacy))
         new=self.op(lambda s:s.capture(self.doc,old['id'],'Synthetic revision',old['digest']))
         self.assertEqual(old['record']['ajf_version'],'0.1-draft')
-        self.assertEqual(new['record']['ajf_version'],'0.2-draft')
+        self.assertEqual(new['record']['ajf_version'],'0.3-draft')
         self.assertEqual(self.op(lambda s:s.record(old['id'],1)),old['record'])
         self.assertEqual(digest(old['record']),old['digest'])
         self.assertTrue(self.op(lambda s:s.audit())['ok'])

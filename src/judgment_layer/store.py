@@ -178,7 +178,7 @@ class Store:
             record.setdefault("version", 1)
             if record["version"] != 1:
                 raise JudgmentError("Capture starts at version 1; use revise")
-        record.setdefault("ajf_version", "0.2-draft")
+        record.setdefault("ajf_version", "0.3-draft")
         record.setdefault("links", [])
         validate(record)
         if record["provenance"]["origin"] not in self.config["capture"]["origins"]:

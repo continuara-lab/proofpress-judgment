@@ -1,4 +1,4 @@
-# Agent Judgment Format — 0.2-draft
+# Agent Judgment Format — 0.3-draft
 
 AJF is portable judgment content. The CLI completes `ajf_version`, a generated
 `id`, `version: 1` and empty `links` when capturing a candidate. `validate` accepts
@@ -49,3 +49,7 @@ explicit shared subject for deterministic conflict checks; it does not turn pros
 into a verifier or grant authority. Contradictory assertions in overlapping scopes
 are flagged and pause admission/reuse until resolved. Natural-language conflicts
 need separate optional assessment. See [runtime checks](RUNTIME.md).
+
+AJF 0.3 adds contextual fields, alternatives, expected outcomes and judgment
+polarity. Outcome observations are separate append-only events. See [intake and
+observations](INTAKE.md). Existing 0.1/0.2 digests are never rewritten.

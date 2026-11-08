@@ -95,6 +95,35 @@ def parser():
     s.add_argument("--from", dest="source", required=True)
     s.add_argument("--confirm", action="store_true")
     s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
+    s = sub.add_parser("onboard", help="Preview or enable project-local capture policy and agent skills")
+    s.add_argument("--project", default=".")
+    s.add_argument("--agents", nargs="+", choices=sorted(AGENTS), default=["codex"])
+    s.add_argument("--owner", help="human:<name>; required when enabling a new workspace")
+    s.add_argument("--confirm", action="store_true", help="Human confirms the shown project configuration")
+    s.add_argument("--triggers", nargs="+", choices=["human_correction","agent_judgment","task_end","none"])
+    s.add_argument("--history", choices=["selected_only","none"])
+    s.add_argument("--extraction", choices=["manual","assisted"])
+    s = sub.add_parser("capture-policy", help="Inspect or explicitly update capture policy")
+    s.add_argument("--triggers", nargs="+", choices=["human_correction","agent_judgment","task_end","none"])
+    s.add_argument("--history", choices=["selected_only","none"])
+    s.add_argument("--extraction", choices=["manual","assisted"])
+    s.add_argument("--from", dest="source")
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("observe", help="Append sourced outcome evidence to an exact judgment revision")
+    s.add_argument("--from", dest="source", required=True)
+    s = sub.add_parser("observations", help="List outcome observations without changing the judgment")
+    s.add_argument("id")
+    s = sub.add_parser("review-assist", help="Deterministic and model-assisted review; never admits")
+    s.add_argument("id")
+    s = sub.add_parser("history", help="Preview or import one explicitly selected Codex session")
+    s.add_argument("action", choices=["scan", "preview", "import"])
+    s.add_argument("--file")
+    s.add_argument("--root", default="~/.codex/sessions")
+    s.add_argument("--days", type=int, default=7)
+    s.add_argument("--project", required=True)
+    s = sub.add_parser("consolidate", help="Preview pending batches or extract candidate judgments")
+    s.add_argument("--scope", required=True)
+    s.add_argument("--model-assessment", action="store_true", help="Send selected excerpts to the Codex model for extraction")
     for child in set(sub.choices.values()):
         child.add_argument("--json", action="store_true", help="Print the full record as JSON")
         if not any(a.dest == "format" for a in child._actions):
@@ -104,6 +133,25 @@ def parser():
 
 
 def run(args):
+    if args.command == "onboard":
+        from .intake import onboard, DEFAULT_POLICY
+        selected = None
+        if args.triggers is not None or args.history is not None or args.extraction is not None:
+            selected = {}
+            if args.triggers is not None:
+                if 'none' in args.triggers and len(args.triggers)>1:raise JudgmentError('none cannot be mixed with other triggers')
+                selected['triggers']=[] if args.triggers==['none'] else args.triggers
+            if args.history is not None:selected['history']=args.history
+            if args.extraction is not None:selected['extraction']=args.extraction
+        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected)
+    if args.command == "history" and args.action == "scan":
+        from .history import scan
+        return scan(args.root,args.project,args.days)
+    if args.command == "history" and not args.file:
+        raise JudgmentError("Select --file from the history scan before importing")
+    if args.command == "history" and args.action == "preview":
+        from .history import preview
+        return preview(args.file,args.project)
     if args.command == "setup":
         return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
                      args.owner, args.dry_run)
@@ -126,7 +174,45 @@ def run(args):
         return hook(args.workspace, event)
     store = Store(args.workspace)
     try:
+        if args.command == "consolidate" and args.model_assessment:
+            from .history import consolidate, extract
+            with store.transaction():
+                from .intake import policy
+                if policy(store)['history']=='none':raise JudgmentError('History processing is disabled by capture policy')
+                done={e['data']['batch_id'] for e in store.events() if e['kind']=='history_consolidated'}
+                batches=[e for e in store.events() if e['kind']=='history_imported' and e['event_id'] not in done and e['data']['batch']['messages']]
+                batch=batches[0] if batches else None
+            candidates=extract(batch['data']['batch']['messages']) if batch else []
+            with store.transaction():
+                return consolidate(store,args.scope,True,(batch['event_id'],candidates) if batch else None)
         with store.transaction():
+            if args.command == "capture-policy":
+                from .intake import policy, set_policy
+                changed = any(x is not None for x in (args.triggers,args.history,args.extraction))
+                if args.source and changed:raise JudgmentError('Choose a policy file or CLI options, not both')
+                if args.source:return set_policy(store,load(args.source),args.confirm)
+                value = dict(policy(store))
+                if args.triggers is not None:
+                    if 'none' in args.triggers and len(args.triggers)>1:raise JudgmentError('none cannot be mixed with other triggers')
+                    value['triggers']=[] if args.triggers==['none'] else args.triggers
+                if args.history is not None:value['history']=args.history
+                if args.extraction is not None:value['extraction']=args.extraction
+                return set_policy(store,value,args.confirm) if changed else {"capture_policy":value}
+            if args.command == "observe":
+                from .intake import observe
+                return observe(store,load(args.source))
+            if args.command == "observations":
+                store.record(args.id)
+                return {"observations":[e for e in store.events() if e['kind']=='outcome_observed' and e.get('judgment_id')==args.id]}
+            if args.command == "review-assist":
+                from .intake import review_assist
+                return review_assist(store,args.id)
+            if args.command == "history":
+                from .history import ingest
+                return ingest(store,args.file,args.project)
+            if args.command == "consolidate":
+                from .history import consolidate
+                return consolidate(store,args.scope,args.model_assessment)
             if args.command == "assess":
                 from .runtime import screen
                 return screen(store, store.describe(store.record(args.id)))
@@ -189,6 +275,18 @@ def main(argv=None):
                     raise JudgmentError("Unsupported BYOK environment entry")
                 os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
         result = run(args)
+        if args.command == "onboard" and not args.confirm and sys.stdin.isatty() and sys.stdout.isatty() and not args.json and args.format == "text":
+            print(render_text("onboard", result))
+            if input("Enable this configuration? [y/N] ").strip().lower() == "y":
+                import getpass
+                args.confirm = True
+                if args.owner is None:
+                    path = Path(result["workspace"])
+                    args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+                result = run(args)
+            else:
+                print("No change.")
+                return 0
         if args.command == "hook":
             print(json.dumps(result, separators=(",", ":")))
             return 0

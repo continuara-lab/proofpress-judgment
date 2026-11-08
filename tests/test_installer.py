@@ -26,7 +26,7 @@ with open(os.environ['INSTALL_LOG'],'a') as out: out.write(json.dumps([name,*sys
 if name==os.environ['FAIL_STAGE']: sys.exit(1)
 if name=='uv' and sys.argv[1:]==['tool','dir','--bin']: print(os.environ['TEST_BIN'])
 '''
-                for name in ('git', 'uv', 'judgment'):
+                for name in ('git', 'uv', 'proofpress'):
                     path = tools / name
                     path.write_text('#!' + sys.executable + '\n' + program)
                     path.chmod(0o755)
@@ -37,7 +37,7 @@ if name=='uv' and sys.argv[1:]==['tool','dir','--bin']: print(os.environ['TEST_B
                 calls = [json.loads(x) for x in log.read_text().splitlines()]
                 if failure in ('none', 'existing'):
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    setup = next(x for x in calls if x[0] == 'judgment')
+                    setup = next(x for x in calls if x[0] == 'proofpress')
                     if failure == 'existing':
                         self.assertEqual(setup[1:], ['setup', '--all'])
                     else:
@@ -45,6 +45,6 @@ if name=='uv' and sys.argv[1:]==['tool','dir','--bin']: print(os.environ['TEST_B
                         self.assertTrue(setup[4].startswith('human:'))
                 else:
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertFalse(any(x[0] == 'judgment' for x in calls))
+                    self.assertFalse(any(x[0] == 'proofpress' for x in calls))
                     if failure == 'git':
                         self.assertFalse(any(x[0] == 'uv' for x in calls))

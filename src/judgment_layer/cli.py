@@ -1,4 +1,4 @@
-"""Explicit manual review. Lifecycle output is JSON; setup also has a text view."""
+"""Proofpress CLI: concise by default, explicit JSON for automation."""
 import argparse
 import json
 import sqlite3
@@ -10,6 +10,7 @@ from .model import JudgmentError, render, validate
 from .store import Store, initialize
 from .importers import from_trace
 from .setup import AGENTS, setup
+from .presentation import agent_projection, render_text
 
 
 def load(path):
@@ -25,7 +26,8 @@ def load(path):
 
 
 def parser():
-    p = argparse.ArgumentParser(description="Capture, manually review and reuse scoped judgments locally.")
+    p = argparse.ArgumentParser(prog="proofpress", description="Capture, manually review and reuse scoped judgments locally.")
+    p.add_argument("--env-file", help="Explicit local BYOK environment file; never loaded automatically")
     p.add_argument("--workspace", default=".judgment", help="Store directory; default .judgment in current directory")
     sub = p.add_subparsers(dest="command", required=True)
     s = sub.add_parser("setup", help="Connect agent skills to a manual-only workspace in this project")
@@ -42,7 +44,9 @@ def parser():
     s.add_argument("--owner", required=True, help="Self-asserted local human:<name> identity")
     s = sub.add_parser("capture", help="Store an explicit AJF candidate; never admits")
     s.add_argument("--from", dest="source", required=True)
-    s = sub.add_parser("import-trace", help="Map one TRACE decision to a candidate with explicit applicability")
+    s.add_argument("--model-assessment", "--decision-model", dest="semantic", action="store_true", help="Assess this candidate using your configured decision model")
+    s.add_argument("--semantic", dest="semantic", action="store_true", help=argparse.SUPPRESS)
+    s = sub.add_parser("import", help="Import one captured judgment for review")
     s.add_argument("--session", required=True)
     s.add_argument("--event", required=True)
     s.add_argument("--template", required=True)
@@ -57,7 +61,7 @@ def parser():
     s = sub.add_parser("show", help="Inspect a complete record and disposition")
     s.add_argument("id")
     s.add_argument("--version", type=int)
-    s.add_argument("--format", choices=["json", "markdown"], default="json")
+    s.add_argument("--format", choices=["text", "agent", "json", "markdown"], default="text")
     for command in ("review", "withdraw"):
         s = sub.add_parser(command, help="Explicit local owner action; not an agent operation")
         s.add_argument("id")
@@ -75,7 +79,7 @@ def parser():
     s.add_argument("--facts", required=True, help="JSON object of trusted task facts; use - for stdin")
     s.add_argument("--actor", required=True)
     s.add_argument("--purpose", required=True)
-    s.add_argument("--format", choices=["json", "markdown"], default="json")
+    s.add_argument("--format", choices=["text", "agent", "json", "markdown"], default="text")
     s = sub.add_parser("check", help="Freshly recheck a stored receipt; nonzero on stale/inapplicable/empty context")
     s.add_argument("--receipt", required=True)
     s.add_argument("--facts", required=True)
@@ -85,6 +89,17 @@ def parser():
     s = sub.add_parser("validate", help="Validate a complete AJF record without opening a workspace")
     s.add_argument("file")
     sub.add_parser("policy", help="Read the capture guidance and manual-only admission configuration")
+    s = sub.add_parser("assess", help="Screen a candidate against admitted judgments using optional BYOK")
+    s.add_argument("id")
+    s = sub.add_parser("bind", help="Human-only: bind an admitted judgment to a runtime verifier")
+    s.add_argument("--from", dest="source", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
+    for child in set(sub.choices.values()):
+        child.add_argument("--json", action="store_true", help="Print the full record as JSON")
+        if not any(a.dest == "format" for a in child._actions):
+            child.add_argument("--format", choices=["text", "agent", "json"], default="text",
+                               help="text: concise; agent: small JSON; json: full record")
     return p
 
 
@@ -102,12 +117,30 @@ def run(args):
         record = validate(load(args.file))
         return {"ok": True, "id": record["id"], "version": record["version"],
                 "boundary": "Shape and bounded consistency only; no admission or factual verification."}
+    if args.command == "hook":
+        from .runtime import hook
+        try:
+            event = load("-")
+        except (ValueError, OSError):
+            event = None
+        return hook(args.workspace, event)
     store = Store(args.workspace)
     try:
         with store.transaction():
+            if args.command == "assess":
+                from .runtime import screen
+                return screen(store, store.describe(store.record(args.id)))
+            if args.command == "bind":
+                from .runtime import bind
+                return bind(store, load(args.source), args.confirm)
             if args.command == "capture":
-                return store.capture(load(args.source))
-            if args.command == "import-trace":
+                item = store.capture(load(args.source))
+                if args.semantic:
+                    from .runtime import screen
+                    screen(store, item)
+                    item = store.describe(item['record'])
+                return item
+            if args.command in {"import", "import-trace"}:
                 return store.capture(from_trace(load(args.session), args.event, load(args.template), args.recorded_by))
             if args.command == "revise":
                 return store.capture(load(args.source), args.id, args.reason, args.base_digest)
@@ -137,18 +170,41 @@ def run(args):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # Accept the old subcommand without advertising another product vocabulary.
+    command_index = 2 if argv[:1] == ["--workspace"] else 1 if argv and argv[0].startswith("--workspace=") else 0
+    if len(argv) > command_index and argv[command_index] == "import-trace":
+        argv[command_index] = "import"
     args = parser().parse_args(argv)
     try:
+        if args.env_file:
+            import os
+            allowed = {"TYPESAFE_API_KEY", "PROOFPRESS_SEMANTIC_PROVIDER", "PROOFPRESS_SEMANTIC_MODEL", "PROOFPRESS_DECISION_MODEL_PROVIDER", "PROOFPRESS_DECISION_MODEL"}
+            for line in Path(args.env_file).read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                key, sep, value = line.partition("=")
+                if not sep or key.strip() not in allowed:
+                    raise JudgmentError("Unsupported BYOK environment entry")
+                os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
         result = run(args)
+        if args.command == "hook":
+            print(json.dumps(result, separators=(",", ":")))
+            return 0
+        if args.json:
+            args.format = "json"
+        if args.command in {"example", "schema"}:
+            args.format = "json"
         if args.command == "setup" and args.format == "text":
-            print("Judgment Layer setup preview" if result["dry_run"] else "Judgment Layer is ready")
+            print("Proofpress setup preview" if result["dry_run"] else "Proofpress is ready")
             print("Store: " + result["workspace"])
             print(f"Agents: {len(result['agents'])} skill entry points. Manual approval. No action hooks.")
             if result["dry_run"]:
                 for path in result["skill_directories"]:
                     print("Would install: " + path)
             else:
-                print("Next: reload agent skills, then ask your agent to use judgment-layer.")
+                print("Next: reload agent skills, then ask your agent to use Proofpress.")
             if "hermes" in result["agents"]:
                 print("Hermes: inspect and trust the Git project with `hermes skills trust`.")
         elif args.command == "show" and args.format == "markdown":
@@ -160,11 +216,21 @@ def main(argv=None):
                 print(render(item["record"]))
             if not result["judgments"]:
                 print("No eligible judgments for these supplied facts.")
+        elif args.format == "agent":
+            print(json.dumps(agent_projection(args.command, result), ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+        elif args.format == "text":
+            print(render_text(args.command, result))
         else:
-            print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
-        return 3 if args.command == "check" and not result["ok"] else 0
+            print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+        return 3 if args.command in {"check", "assess"} and not result["ok"] else 0
     except (JudgmentError, OSError, ValueError, sqlite3.Error, KeyError, TypeError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        if args.command == "hook":
+            print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Proofpress failed; action paused"}}))
+            return 0
+        if args.json or args.format in {"json", "agent"}:
+            print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        else:
+            print("Error: " + str(exc), file=sys.stderr)
         return 2
 
 

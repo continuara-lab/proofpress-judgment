@@ -1,0 +1,236 @@
+{
+  "started_at": "2026-11-08T11:08:53.152480Z",
+  "host": "codex-cli 0.153.4",
+  "synthetic_only": true,
+  "scenarios": [
+    {
+      "name": "admitted_binding_allows",
+      "passed": true,
+      "expected": "allow",
+      "host_exit_code": 0,
+      "file_created": true,
+      "content_matches": true,
+      "seconds": 12.1,
+      "hook_receipts": [
+        {
+          "event_id": "evt_b8155775666b4a33a1cf7501bfcb1aa3",
+          "event_digest": "sha256:c46a2fd7de6b4a2243bcf25edbf66fc7baa597e53a9e5218d4c7c9089acf5e4c",
+          "result": {
+            "ok": true,
+            "reason": "All patch targets passed covered checks"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "conflicting_proposal_pauses",
+      "passed": true,
+      "expected": "deny",
+      "host_exit_code": 0,
+      "file_created": false,
+      "content_matches": false,
+      "seconds": 9.51,
+      "hook_receipts": [
+        {
+          "event_id": "evt_246901351838494ca60c80498c366248",
+          "event_digest": "sha256:48f603825ba54d7daebfe2e4b214148bb3c9162d64dd9b3c4510a2a58d36a195",
+          "result": {
+            "ok": false,
+            "reason": "Judgment conflict or uncertainty; resolve before continuing"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "conflict_resolution_resumes",
+      "passed": true,
+      "expected": "allow",
+      "host_exit_code": 0,
+      "file_created": true,
+      "content_matches": true,
+      "seconds": 9.51,
+      "hook_receipts": [
+        {
+          "event_id": "evt_5608f59fac3646bca9939f4c6a9b318a",
+          "event_digest": "sha256:8fb1d67d291a57f6ff1994808919d9a85fe901a301ad9dcfc79607de2d65f378",
+          "result": {
+            "ok": true,
+            "reason": "All patch targets passed covered checks"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "withdrawal_invalidates_binding",
+      "passed": true,
+      "expected": "deny",
+      "host_exit_code": 0,
+      "file_created": false,
+      "content_matches": false,
+      "seconds": 10.16,
+      "hook_receipts": [
+        {
+          "event_id": "evt_47785e61292f41cca17cd06e7ec76006",
+          "event_digest": "sha256:396f5b64eb968ee7d4d3076bb5751adae8e02ed5b51190de4589d42a49188866",
+          "result": {
+            "ok": false,
+            "reason": "Binding withdrawn or superseded; human review required"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "new_admission_does_not_upgrade_old_binding",
+      "passed": true,
+      "expected": "deny",
+      "host_exit_code": 0,
+      "file_created": false,
+      "content_matches": false,
+      "seconds": 9.14,
+      "hook_receipts": [
+        {
+          "event_id": "evt_024b35b17630426fa8abe005204c7f6c",
+          "event_digest": "sha256:f554d4794cad9e8d3056166906bfaa5291f8d9051ea9b71361db3a1edc377a9f",
+          "result": {
+            "ok": false,
+            "reason": "Binding withdrawn or superseded; human review required"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "explicit_rebind_resumes",
+      "passed": true,
+      "expected": "allow",
+      "host_exit_code": 0,
+      "file_created": true,
+      "content_matches": true,
+      "seconds": 9.57,
+      "hook_receipts": [
+        {
+          "event_id": "evt_d5c58dd0ce2543eba7e615980c6df6df",
+          "event_digest": "sha256:732740a59e88347a1c271216f211d7a030af03728504f2f022e65ee00cf51de1",
+          "result": {
+            "ok": true,
+            "reason": "All patch targets passed covered checks"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "pending_revision_keeps_current_binding",
+      "passed": true,
+      "expected": "allow",
+      "host_exit_code": 0,
+      "file_created": true,
+      "content_matches": true,
+      "seconds": 11.18,
+      "hook_receipts": [
+        {
+          "event_id": "evt_f2840a99d3a1404eb230d3340ca2ac94",
+          "event_digest": "sha256:75ae1d82de642b47d6d090cef76d3e4ae875fe88bed329f324f74441386d400a",
+          "result": {
+            "ok": true,
+            "reason": "All patch targets passed covered checks"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "supersession_invalidates_old_binding",
+      "passed": true,
+      "expected": "deny",
+      "host_exit_code": 0,
+      "file_created": false,
+      "content_matches": false,
+      "seconds": 9.47,
+      "hook_receipts": [
+        {
+          "event_id": "evt_29994b5d6eb042d6a64610910d865e3d",
+          "event_digest": "sha256:770f516409a8ef37148e6e9f947b593c9d0f82af46402b5029f40456f08e442a",
+          "result": {
+            "ok": false,
+            "reason": "Binding withdrawn or superseded; human review required"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "generated_edit_is_blocked",
+      "passed": true,
+      "expected": "deny",
+      "host_exit_code": 0,
+      "file_created": false,
+      "content_matches": false,
+      "seconds": 9.2,
+      "hook_receipts": [
+        {
+          "event_id": "evt_96027848644d4b5588f4b5acc3c83835",
+          "event_digest": "sha256:f3b2c998a4d453ba04e6a76a71e3306121c8f7acd18254473488977919f8350d",
+          "result": {
+            "ok": false,
+            "reason": "Direct edit to generated file blocked. Change the source schema and regenerate."
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "decision_model_violation_pauses",
+      "passed": true,
+      "expected": "deny",
+      "host_exit_code": 0,
+      "file_created": false,
+      "content_matches": false,
+      "seconds": 10.25,
+      "hook_receipts": [
+        {
+          "event_id": "evt_e6d9dd69c9b047df9d9f54b806bb0706",
+          "event_digest": "sha256:b315162d7f8b7a708508b345deb3d4e7a704f8161af57fd87b15238d121e82fd",
+          "result": {
+            "ok": false,
+            "reason": "Decision model review paused: violation"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    },
+    {
+      "name": "decision_model_compliant_output_passes",
+      "passed": true,
+      "expected": "allow",
+      "host_exit_code": 0,
+      "file_created": true,
+      "content_matches": true,
+      "seconds": 9.76,
+      "hook_receipts": [
+        {
+          "event_id": "evt_056890a40765448bb3958adb3bcb7047",
+          "event_digest": "sha256:719e5796f2d721326bcb9d3cddcf4a4e804d8189af5cba4ba90e100b56b321bf",
+          "result": {
+            "ok": true,
+            "reason": "All patch targets passed covered checks"
+          },
+          "tool_name": "apply_patch"
+        }
+      ]
+    }
+  ],
+  "boundary": "Real local Codex apply_patch interception; not hostile same-user isolation, other-host coverage, or a task-quality benchmark.",
+  "audit": {
+    "ok": true,
+    "revisions": 5,
+    "events": 30,
+    "head": "sha256:c583c94c5e1bf5fec306567ea4e69362e0aaaebc95d3ed581da2c2bd1edbd62a"
+  },
+  "passed": true,
+  "finished_at": "2026-11-08T11:10:43.146882Z"
+}

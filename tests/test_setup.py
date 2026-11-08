@@ -63,13 +63,23 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(before, (config.read_bytes(), db.read_bytes()))
 
     def test_conflict_prevents_store_and_all_other_writes(self):
-        target = self.root / ".claude/skills/judgment-layer/SKILL.md"
+        target = self.root / ".claude/skills/proofpress/SKILL.md"
         target.parent.mkdir(parents=True)
         target.write_text("Keep my instructions")
         with self.assertRaises(JudgmentError):
             setup(self.root, ".judgment", list(AGENTS), "human:synthetic-owner")
         self.assertEqual(target.read_text(), "Keep my instructions")
         self.assertFalse((self.root / ".agents").exists())
+        self.assertFalse((self.root / ".judgment").exists())
+
+    def test_legacy_skill_is_not_duplicated_or_deleted(self):
+        legacy = self.root / ".agents/skills/judgment-layer/SKILL.md"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("User-edited legacy skill")
+        with self.assertRaises(JudgmentError):
+            setup(self.root, ".judgment", ["codex"], "human:synthetic-owner")
+        self.assertEqual(legacy.read_text(), "User-edited legacy skill")
+        self.assertFalse((self.root / ".agents/skills/proofpress").exists())
         self.assertFalse((self.root / ".judgment").exists())
 
     def test_broken_existing_store_is_not_reported_ready(self):
@@ -109,7 +119,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(example.returncode, 0, example.stderr)
         candidate = self.root / "candidate.json"
         candidate.write_text(example.stdout)
-        captured = cli("capture", "--from", str(candidate))
+        captured = cli("capture", "--from", str(candidate), "--json")
         self.assertEqual(captured.returncode, 0, captured.stderr)
         self.assertEqual(json.loads(captured.stdout)["state"], "proposed")
         self.assertEqual(cli("schema").returncode, 0)

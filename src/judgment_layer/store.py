@@ -20,7 +20,7 @@ def read_config(root):
     try:
         config = json.loads((root / "config.json").read_text())
     except (OSError, ValueError) as exc:
-        raise JudgmentError("Workspace not initialized or config invalid; run judgment init") from exc
+        raise JudgmentError("Workspace not initialized or config invalid; run proofpress init") from exc
     if set(config) != {"schema_version", "owner", "admission", "capture"} or config["schema_version"] != 1:
         raise JudgmentError("Unsupported workspace configuration")
     if not isinstance(config["owner"], str) or not config["owner"].startswith("human:") or not config["owner"][6:].strip():
@@ -178,7 +178,7 @@ class Store:
             record.setdefault("version", 1)
             if record["version"] != 1:
                 raise JudgmentError("Capture starts at version 1; use revise")
-        record.setdefault("ajf_version", "0.1-draft")
+        record.setdefault("ajf_version", "0.2-draft")
         record.setdefault("links", [])
         validate(record)
         if record["provenance"]["origin"] not in self.config["capture"]["origins"]:
@@ -195,11 +195,16 @@ class Store:
         if jid and self.state(prior) in {"proposed", "needs_changes"}:
             self.append("candidate_replaced", record["provenance"]["recorded_by"], prior, reason,
                         {"by_version": record["version"], "by_digest": digest(record)})
+        from .runtime import conflicts
+        flags = conflicts(self, record)
+        if flags:
+            self.append("conflict_screened", "system:deterministic", record, data={"flags": flags})
         return self.describe(record)
 
     def describe(self, record):
+        from .runtime import active_flags
         return {"id": record["id"], "version": record["version"], "name": record["name"],
-                "digest": digest(record), "state": self.state(record), "record": record}
+                "digest": digest(record), "state": self.state(record), "record": record, "flags": active_flags(self, record)}
 
     def owner_action(self, jid, version, expected_digest, decision, reason, confirmed):
         if not confirmed:
@@ -220,6 +225,9 @@ class Store:
             if decision not in {"admit", "reject", "request_changes"}:
                 raise JudgmentError("Unknown review decision")
             if decision == "admit":
+                from .runtime import active_flags
+                if active_flags(self, record):
+                    raise JudgmentError("Judgment conflict or uncertainty; resolve or rescreen before admission")
                 # Source validation is a human review, not a structural-check claim.
                 if record["judgment"]["rationale"] is None or record["provenance"]["origin"] == "unknown":
                     raise JudgmentError("Admission requires recorded rationale and known origin")
@@ -252,12 +260,17 @@ class Store:
                 blocked.append({"id": record["id"], "version": record["version"], "reason": reason})
             else:
                 selected.append(self.describe(record))
+        from .runtime import holds
+        scope_holds = holds(self, scope)
+        if scope_holds:
+            blocked += [{"id":x["id"],"version":x["version"],"reason":"judgment_conflict_or_unknown"} for x in selected]
+            selected = []
         receipt = {"schema_version": "judgment/context/v1", "receipt_id": "ctx_" + uuid.uuid4().hex,
                    "created_at": now(), "scope": scope, "facts": facts, "actor": actor, "purpose": purpose,
                    "policy_digest": digest(self.config),
                    "items": [{k: x[k] for k in ("id", "version", "digest")} for x in selected]}
         self.append("context_supplied", actor, data={"receipt": receipt})
-        return {"receipt": receipt, "judgments": selected, "blocked": blocked,
+        return {"receipt": receipt, "judgments": selected, "blocked": blocked, "holds":scope_holds,
                 "boundary": "Supplied advice, not proof of use or permission to execute."}
 
     def check(self, receipt_id, facts):
@@ -267,6 +280,9 @@ class Store:
         if receipt is None:
             raise JudgmentError("Receipt not found")
         reasons = []
+        from .runtime import holds
+        if holds(self, receipt["scope"]):
+            reasons.append("judgment_conflict_or_unknown")
         if not receipt["items"]:
             reasons.append("empty_context")
         if canonical(facts) != canonical(receipt["facts"]):

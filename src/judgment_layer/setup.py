@@ -63,6 +63,11 @@ def setup(project, workspace, agents, owner=None, dry_run=False):
     if owner is not None and (not owner.startswith("human:") or not owner[6:].strip()):
         raise JudgmentError("Use --owner human:<name>")
 
+    for directory in {AGENTS[agent] for agent in selected}:
+        legacy = root / directory / "judgment-layer"
+        if legacy.exists() or legacy.is_symlink():
+            raise JudgmentError(f"Legacy skill found: {legacy}. Back it up outside the skill directory before setup; no files changed.")
+
     source = files("judgment_layer")
     bundle = source.joinpath("skill")
     content = bundle.joinpath("SKILL.md").read_text().replace(
@@ -76,7 +81,7 @@ def setup(project, workspace, agents, owner=None, dry_run=False):
     planned = {}
     for directory in sorted({AGENTS[agent] for agent in selected}):
         for name, text in resources.items():
-            target = root / directory / "judgment-layer" / name
+            target = root / directory / "proofpress" / name
             check_path(target, root)
             if target.exists() and (not target.is_file() or target.read_text() != text):
                 raise JudgmentError(f"Existing file differs; preserve or move it before setup: {target}")
@@ -95,11 +100,11 @@ def setup(project, workspace, agents, owner=None, dry_run=False):
     return {
         "ok": True, "dry_run": dry_run, "project": str(root), "workspace": str(store),
         "agents": selected, "admission": "manual", "hooks_installed": False,
-        "skill_directories": sorted({str(root / AGENTS[a] / "judgment-layer") for a in selected}),
+        "skill_directories": sorted({str(root / AGENTS[a] / "proofpress") for a in selected}),
         "created": created,
         "next": ["Reload agent skills or start a new session in this project.",
-                 "Ask the agent to use judgment-layer to capture a correction; review it yourself.",
-                 "Hermes requires a Git project and your own `hermes skills trust` decision.",
+                 "Ask the agent to use Proofpress to capture a correction; review it yourself.",
+                 "Hermes requires a Git project and your own `hermes skills trust` confirmation.",
                  "Remote agents need the CLI and workspace provisioned on their own machine."],
         "boundary": "Skill entry points prepared, not live-host verification or action enforcement.",
     }

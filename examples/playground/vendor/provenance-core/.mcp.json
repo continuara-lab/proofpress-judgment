@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "trace": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        ".",
+        "--with",
+        "openai",
+        "--with",
+        "numpy",
+        "--with",
+        "fastembed",
+        "--refresh-package",
+        "trace-mcp",
+        "trace-mcp"
+      ],
+      "env": {
+        "TRACE_PROJECT": "trace-mcp"
+      }
+    }
+  }
+}

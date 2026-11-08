@@ -1,0 +1,1320 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+> **On the 0.4.1 and 0.4.2 sections.** Both were written up here but never
+> tagged, so no git tag or GitHub Release exists for either and neither has a
+> comparison link. Their changes ship in the v0.5.0 tag, whose comparison link
+> therefore spans from v0.4.0.
+
+## [Unreleased]
+
+### Fixed
+
+- **A failed query embedding no longer takes recall down with it.** Stored learnings
+  carry vectors, but every recall also embeds the query, and that call failed as a bare
+  exception when the OpenAI endpoint was unreachable or the `fastembed` model files were
+  missing, so the tool answered "Failed to recall learnings" in both strict and permissive
+  mode. In permissive mode the ranker now ranks that recall by keywords, names the
+  backend `bm25 (query embedding failed under ...)` and carries the reason in the
+  `notice`; strict mode raises `LLMFallbackError` as it does for other embedding
+  failures; a refused key is still reported as such in every mode.
+- **`matched` now means something.** The hybrid ranker's relative floor always admits
+  the top of the store, so on 200 off-topic queries against five real stores every
+  backend flagged 98 to 100% of returned items `matched`, and decision proposals received
+  warnings about anything. Recall now also gates on the best raw similarity of the whole
+  store, with per-model values calibrated against those queries and 147 real ones
+  (`arctic-embed-s` 0.625, `arctic-embed-m` 0.32, `text-embedding-3-small` 0.365;
+  keyword ranking 0.76 on normalised BM25 for stores of 30 or more learnings), a lexical
+  override at 0.80 for identifier-shaped queries, and no gate for models not yet
+  calibrated. A gated recall returns the nearest candidates as weak matches, says `gated`
+  in its summary and "nothing in the store resembles this query" in its notice, and feeds
+  no decision warnings. `TRACE_RECALL_GATE` accepts `auto`, `off`, or a number.
+- **`fastembed` model files live under `~/.trace/models`** (`TRACE_MODEL_CACHE_DIR`,
+  or fastembed's own `FASTEMBED_CACHE_PATH`) instead of the per-user temporary directory
+  fastembed defaults to, which the operating system may clear; a cleared cache cost a
+  130 MB re-download on the next recall, or a failed recall without network. The first
+  recall after upgrading downloads the model once into the new location.
+
+### Changed
+
+- **The default OpenAI model for LLM relevance scoring and learning extraction is
+  now `gpt-6-luna`** (previously `gpt-5.4-mini`). It applies when neither
+  `TRACE_LLM_MODEL` nor `TRACE_LLM_EXTRACTION_MODEL` is set. The id now lives in one
+  constant, `DEFAULT_LLM_MODEL`, which the dataclass defaults and the config loader's
+  fallbacks share, and a test fails when the README configuration table or the
+  trace-learn doc restates a different id, so the docs cannot drift from the code
+  again. Cloud matching and extraction stay opt-in, and the embedding model is
+  unchanged.
+- **The docs describe OpenAI embeddings as a measured, scoped opt-in.** On fifteen real
+  stores with judged relevance, `text-embedding-3-small` scored 0.028 nDCG@10 above the
+  local `arctic-embed-s` default (90% interval +0.013 to +0.044), below the +0.05 bar for
+  changing the recommendation, at 200 ms per recall against 6 ms, no recall offline,
+  four-times larger store files and full text egress; `arctic-embed-m` added nothing over
+  `arctic-embed-s`; the hybrid beat keyword-only ranking by 0.074. `docs/embeddings.md`
+  carries the numbers and the trade-off.
+
+- **The server runs on the mcp 2.x SDK; the dependency is now `mcp>=2,<3`.**
+  mcp 2.0 removed `mcp.server.fastmcp`, which `server.py` imported at module
+  scope, so trace-mcp could not import in any environment that also carried
+  an mcp 2.x package: every tool disappeared at once with a
+  `ModuleNotFoundError`. The pinned `mcp<2` bound protected consumers launched
+  through `uvx --refresh` but left every other install path dead on arrival.
+  `server.py` now builds `MCPServer("trace", version=...)`, passes host, port
+  and the HTTP path to `run()` where mcp 2 reads them, and no longer stamps the
+  version through a private attribute, because the constructor takes it. The
+  handshake version is asserted through the public `MCPServer.version`
+  property and over the wire in the stdio end-to-end test. Two mcp 2 defaults
+  that would have changed behaviour are handled. The streamable-http
+  transport's 30-minute idle eviction, after which the old session id answers
+  404, is turned off so a consumer that logs its next event after a long task
+  keeps its session, as under mcp 1.x. And because mcp 2 reports any exception
+  inside a tool as a bare `Error executing tool <name>`, the five read tools
+  (`trace_get_session`, `trace_get_events`, `trace_get_decisions`,
+  `trace_get_decision_chain`, `trace_search`) now return an
+  `Error: could not read session ...` string for a corrupt or unreadable
+  session file, as the write tools already did for their failures. Requests
+  and responses are otherwise unchanged. Consumers that pin `mcp<2` themselves
+  cannot co-install this release.
+- **Learning recall ranks by hybrid BM25 + embedding fusion and no longer
+  applies an absolute cosine cutoff.** The old 0.3 cutoff was compared against
+  `0.7 × cosine + 0.3 × tag overlap`, so a query with no tags needed raw cosine
+  of 0.43, which the bundled static model rarely produces for an on-topic
+  learning; with a fastembed model the same cutoff passed everything. On this
+  project's own 352-learning store with 100 session-description queries
+  (relevant = the learnings extracted from that session), no absolute cutoff
+  separated relevant from irrelevant learnings for any model tried (best F1 0.10
+  to 0.16), BM25 alone outranked every embedding model on those queries, and
+  fusing the two rank lists beat the old default by +0.10 MRR (90% interval
+  +0.055 to +0.140, paired bootstrap over the 100 queries). Results now carry
+  `matched` and per-signal scores (`similarity`, `z`, `bm25`, `tag_overlap`,
+  `decay`, `fused`); a candidate is matched when its similarity stands one
+  standard deviation above the store's mean for the query, has a lexical hit,
+  or shares a tag. Stores under eight learnings skip the z floor and return
+  everything up to the limit, ranked, ties newest-first. When fewer than the
+  limit are matched, up to three weak candidates follow, flagged, and they are
+  left out of decision warnings and recall counts. An explicit `threshold`
+  keeps the legacy absolute semantics over the candidates the backend scored.
+  Tag overlap no longer caps a tagless query's score: it enters the fusion only
+  when the caller passes tags that some learning shares.
+- **Embeddings rank only when a transformer provider is installed.** `auto`
+  now selects `fastembed` (default `snowflake/snowflake-arctic-embed-s`, with
+  its query prefix) when the package is present and otherwise runs recall on
+  BM25 alone; the static `model2vec` tier is used only when
+  `TRACE_EMBEDDING_BACKEND=model2vec` is set explicitly (its default model is
+  `potion-retrieval-32M`, was `potion-base-8M`; such stores re-embed lazily).
+  Measured with the shipped ranker on this project's 352-learning store, 100
+  session descriptions as queries (a learning counts as relevant to the
+  session it was extracted from), limit 10, MRR@10: BM25 alone 0.52; hybrid
+  with the static models 0.42 to 0.44 (90% bootstrap intervals exclude zero
+  against BM25); hybrid with arctic-embed-s 0.52. On the same queries
+  paraphrased by a language model that saw only the descriptions (mean
+  word-level Jaccard with the originals 0.04): BM25 alone 0.17; static models
+  0.17; bge-small 0.23 and arctic-embed-s 0.21, with hit rate@5 (share of
+  queries with a relevant result in the top five) 0.36 against 0.20. The
+  measurement is retrospective and the intervals are exploratory; see
+  `docs/embeddings.md` for the protocol and its limits.
+  The default launch extras written by `trace-mcp-init`, and this repository's
+  own launch config, carry `fastembed` in place of `model2vec`; a config that
+  still carries only `model2vec` keeps working on BM25 alone. The first recall
+  with `fastembed` downloads about 130 MB of weights once and embeds a few hundred learnings (20 to 30 s observed on an Apple Silicon laptop with the weights already on disk). The extension builds one embedding provider
+  per server registration and shares it with the matcher.
+- **Decay no longer reorders candidates with different evidence.** It breaks
+  ties (an evergreen learning outranks a fresher one of equal evidence) and
+  scales the displayed score. Multiplying it into the fused rank score cost
+  0.17 MRR@10 on the benchmark above (fresh store copy per query), because
+  adjacent fused ranks differ by a few percent while a 365-day decay spans up
+  to half; decaying the evidence before ranking cost more. Measured as a
+  tie-breaker, the numbers equal the decay-off run on this benchmark.
+- Lazy (re-)embedding of stale learnings now runs outside the knowledge-store
+  lock: the stale set is snapshotted under the lock, embedded with the lock
+  released, and merged under the lock onto learnings whose content is
+  unchanged. A transformer tier's first embedding of a few hundred learnings
+  takes tens of seconds while the lock times out after 15 s, so holding it
+  would have failed every concurrent add or recall on the project.
+- `trace_learn_recall` embeds the query through the provider's query-side
+  encoder and strips identifier-shaped fragments from it first; the response
+  reports the `query` actually scored. For a provider with an asymmetric query
+  encoder (the fastembed arctic models) this also changes the numbers the
+  legacy `threshold` path produces; that is intended.
+### Added
+
+- **Documented the ONNX Runtime telemetry inside the `fastembed` tier.** ONNX
+  Runtime's official Windows builds register an ETW TraceLogging provider
+  (`Microsoft.ML.ONNXRuntime`) that is on by default and reports session
+  creation, model load, run counts, errors, and process facts, which Windows'
+  diagnostic-data service may upload to Microsoft; the macOS and Linux wheels
+  carry a no-op stub, and no 1.27.0 binary embeds a Microsoft endpoint. The
+  learning text is never part of those events. `docs/embeddings.md` now
+  describes the facility and the documented switch,
+  `onnxruntime.disable_telemetry_events()`, which must run before the model
+  loads because the first events fire at ONNX session creation.
+- `trace_start_session(recall_query=...)`: a search text used instead of the
+  description when the description is an identifier or run label. Recall stays
+  opt-in through `recall_learnings`. The banner echoes the query it used (a
+  server built before this argument drops it silently, so the echo is how a
+  client tells) and appends a one-line notice when nothing cleared the floor,
+  the store was too small for one, or the query was cleaned.
+- `trace_learn_recall` reports `matched`, `scored`, `floor`, `backend`, `query`
+  and, when the bare results would mislead, a `notice`. `warnings` keeps
+  carrying configuration problems only.
+- Embedding providers expose `embed_query` beside `embed_texts`; the
+  `EmbeddingProvider` protocol carries a symmetric default.
+### Fixed
+- The fastembed provider adds the query-side instruction prefix the arctic
+  models are trained with ("Represent this sentence for searching relevant
+  passages: "); fastembed itself never adds it, so a bare query was scored like
+  a document and ranked worse (cosine-only ranking on the store above, same
+  100 queries: MRR 0.33 without the prefix, 0.44 with it). bge models need no
+  prefix and get none.
+- A machine-global OpenAI key no longer makes strict mode refuse keyword
+  recall when nothing cloud-related was requested. With no transformer
+  provider installed and a key present, the extension used to register with a
+  startup error and carry a loud warning on every recall; strict mode now
+  refuses the BM25 fallback only when `TRACE_LLM_ENABLED=true` or
+  `TRACE_EMBEDDING_BACKEND=openai` was set and cannot be served.
+- An empty recall is no longer indistinguishable from an empty store: the
+  session banner and the recall response say how many learnings were scored,
+  the floor, the backend and the best similarity seen.
+- `docs/extensions/trace-learn.md` now documents the embedding backend, which
+  has been the default since v0.3 but was missing from the backend table and
+  the threshold table.
+
+- **Optional Jev advisory classification for existing provenance events.**
+  `trace_jev_assess_candidate` sends a bounded projection of one recorded
+  decision, annotation, or contribution to TypeSafe System One and returns
+  typed choice/Noul probabilities plus an explicit audit envelope. It is
+  opt-in, honors `TRACE_LOCAL_ONLY` and per-project privacy posture, attests
+  egress before sending, never mutates TRACE records or resolves decisions,
+  and keeps Jev distribution confidence separate from measured
+  `decision.confidence`.
+  The provider is explicit: either the direct TypeSafe System One endpoint or
+  Vercel AI Gateway's official evaluation-model SDK path, fixed to
+  `typesafe-ai/jev`. Provider credentials do not fall across transports.
+
+### Fixed
+
+- **`trace-mcp-init` refreshes an installed instruction block instead of
+  skipping it forever.** The Claude Code adapter returned `skipped` the moment
+  it saw the opening marker in a project's `CLAUDE.md`, so every edit to the
+  template reached only projects that did not yet carry a block — which, in a
+  deployed fleet, is none of them. Measured across ten real consumer projects, a
+  protocol change reached zero of them, in two distinct block vintages, while
+  `trace-mcp doctor` reported all ten clean. The block now carries a stamp
+  derived from the shipped template's bytes, so any edit changes it, and the
+  installer replaces the marked region in place when the stamp differs. Only
+  that region is touched: a consumer's own instructions live in the same file
+  (157 lines of them in one real project) and are preserved on both sides, with
+  repeated runs leaving the file byte-identical. An opening marker with no
+  closing one is left untouched rather than guessed at, since guessing the
+  block's extent could delete a project's own text. A new `docs.block_stamp`
+  check reports a stale, unstamped, absent or unterminated block, so this cannot
+  go silently stale again — the same treatment the hook scripts already had
+  through their version stamp and `hooks.stamp` check. Registered under INV-11.
+
+### Added
+
+- **The protocol instructions now tell an agent that decision confidence
+  exists.** The field shipped with no guidance pointing at it: `confidence`
+  occurred nowhere in the `CLAUDE_BLOCK.md` adapter template — the only channel
+  that reaches a consumer project — nor in this project's own instructions, so
+  in practice nothing would ever record a measurement. Both now carry when a
+  measurement is worth recording, the block's shape, that `estimate` is oriented
+  so a positive value favours what the decision proposes, and the rule that
+  decides whether the field is worth having at all: record only a number that
+  was actually computed, never one estimated, rounded from memory, or
+  reconstructed, because a fabricated measurement is worse than none once being
+  typed makes it read as authoritative. Existing consumers pick this up when
+  `trace-mcp-init` runs again against them; a server rebuild does not rewrite a
+  project's `CLAUDE.md`.
+
+- **The session-start banner reports a server older than the source it builds
+  from.** A merge is not a deploy: an MCP server keeps the build it started with
+  for the life of the host session, so work merged afterwards is unreachable from
+  it however current the checkout is. This was not hypothetical — every session
+  recorded between 2026-09-03 and 2026-09-06 carried a wire version three days
+  stale, and nothing said so; the version stamp simply read low. The failure is
+  silent in the worst way, because MCP argument models discard unknown fields: a
+  client passing an argument only a newer build knows has it dropped without an
+  error, and the event reads exactly like one where the caller chose not to
+  supply it. The check compares the running build's package and wire versions
+  against the versions declared in the source tree the project's `.mcp.json`
+  launches from, and names both numbers and the remedy. It is advisory and
+  fail-soft by construction: no config, a launch from a git ref or a registry, a
+  moved or unreadable source tree, or a malformed config all produce silence
+  rather than a warning nobody can act on, and it never raises, so a session can
+  never fail to start because the check could not run.
+
+- **`trace_propose_decision` accepts a `confidence` measurement.** A decision
+  made on a number computed in the course of the work — a bootstrap, a
+  benchmark, a held-out comparison — can now record that number where a reader
+  can inspect it, rather than only in free-text `rationale` where nothing can
+  read it. Previously the field could enter a record only through an importer,
+  so a measurement made in conversation had no path in except hand-writing a log
+  in one producer's schema. The block is validated through the same
+  `DecisionConfidence` model the importers use, so the two paths cannot be
+  validated differently, and a malformed block (bounds out of order, coverage
+  outside the unit interval, a sample size below one, a non-finite number) is
+  refused rather than stored partially. There is deliberately no such argument
+  on `trace_resolve_decision`: a measurement informs a decision and never
+  resolves it. An imported block carries `contract`, naming the producer schema
+  governing its extra keys, and a block logged in conversation does not — which
+  is what tells a reader where a measurement came from. Nothing verifies the
+  numbers or the evidence digests against any file, which was already true of
+  imported blocks. The tool documentation states the one rule that matters:
+  record only a measurement that was actually computed, because a fabricated one
+  is worse than none once it is typed.
+
+- **`trace-mcp import decision-log <log.jsonl> --project NAME`** builds a TRACE
+  session from an evaluation gate's decision log (`rsi-exam-decision-log/v1`).
+  One `decision` event per line, carrying the measurement that drove it as
+  `confidence` (§3.6.1), with the producer's own rule state — minimum effect,
+  verdict, held-out result, confirmation policy, planning, suite — preserved
+  beside it under a `contract` key and never interpreted. A provisional keep
+  stays `proposed` until its replication on fresh seeds resolves it, and that
+  replication is recorded as a revising decision, so the chain reads back the way
+  the run actually went. Three structural lineage rules refuse a log whose event
+  graph cannot be built; verdict, minimum effect, direction, locator syntax and
+  role vocabulary are the producer's verifier's to enforce and are deliberately
+  not re-checked. A line carrying an unknown top-level key is refused naming the
+  key rather than copied or silently dropped, because a producer that widened its
+  format needs the importer re-derived, not the difference hidden. The importer
+  is pure and never writes into the session store, so an imported record is
+  reviewable before it becomes part of a project's provenance. Pinned by two
+  fixtures generated by the producer's own gate and converter, whose output is
+  the oracle the parity tests compare against: a replay-mode log proving the
+  seven gated-mode keys project as explicit nulls, and a gated run under a task
+  profile carrying them populated with receipt evidence and a derived suite.
+
+### Changed
+
+- **`main` now declares a development version, and `CITATION.cff` no longer
+  follows it.** Two trees were both calling themselves `0.5.1`: the tag Zenodo
+  archived, and `main` with three further commits. Moving the tag was refused —
+  it would leave the tag and the minted DOI disagreeing about what `v0.5.1`
+  contains — so the package version becomes `0.5.2.dev0` instead, with no
+  release, tag or DOI. `CITATION.cff` stays at the released version, because a
+  citation file must name a version an archive resolves to and a development
+  version has none. INV-10 therefore gains a third source of truth (the newest
+  released section of this changelog) alongside the package and wire versions,
+  and one cross-rule: when the package version differs from the released one it
+  MUST be marked as a pre-release, so a *stable* version can never silently
+  disagree with the release it shares a number with.
+
+## [0.5.1] — 2026-09-04
+
+### Added
+
+- **Decision confidence.** A decision event may now carry a `confidence`
+  object: the producer-recorded measurement that motivated the decision, with
+  its estimate, an interval and its nominal coverage, the method, the sample
+  size, the raw metric's direction, and digest-bound evidence references.
+  Construction rejects a malformed block, the published JSON Schema carries
+  every per-field constraint, and `trace-mcp validate` applies the cross-field
+  rules after the schema check. The object types the measurement only: a
+  producer's decision rule (minimum effect, verdict, held-out check) is
+  preserved as extra keys identified by a `contract` key and never
+  interpreted. Rendered in the markdown export, the scratchpad, search, and as
+  `trace:confidence*` literals plus evidence entities in PROV-LD. Schema
+  version 0.5.1; the file name is unchanged. Documents that do not use the
+  field load as before; a v0.5.0 document that used `decision.confidence` as an
+  untyped extra with a different shape no longer loads. Specification §3.6.1,
+  §4.6, §6; ADR 007.
+
+- **Streamable HTTP transport.** `trace-mcp --transport streamable-http
+  [--host 127.0.0.1] [--port 8765]` serves the MCP tool surface at
+  `http://HOST:PORT/mcp` for consumers that connect to a running endpoint
+  instead of spawning a stdio process, such as agent runtimes with an MCP
+  service registry or any client on the same machine that outlives one
+  editor session. Default behavior is unchanged (`trace-mcp` with no flags still
+  serves stdio); an unknown flag or transport exits non-zero instead of
+  silently starting a stdio server. Binding a non-loopback host logs a loud
+  warning, since TRACE tools carry no authentication layer. One caveat is
+  inherent to the current design: the server keeps a single current-session
+  pointer, so concurrent HTTP clients that do not pass `session_id`
+  explicitly on every call will interleave into one session. Pass
+  `session_id`, or run one server instance per consumer.
+
+- **`trace-mcp import gents <timeline.json> --project NAME`** builds a TRACE
+  session from a [Gents](https://github.com/source-inc/gents) run timeline
+  (`gents trace timeline`), so a run driven by that agent runtime can be read
+  with the same tools as any other TRACE record. Tool calls map to `tool_call`
+  events with `host="mcp"` when the runtime routed them to a registered MCP
+  service and `host="internal"` otherwise; request, response, and goal
+  transitions map to `state_change`; message bodies, rendered prompts, and
+  inference payloads are counted in metadata but never copied, since they are
+  model input and output rather than provenance. A tool approval maps to a
+  `state_change` stamped with the fact that the approver identity is claimed
+  rather than verified, and **no decision is ever synthesized**: an execution
+  trace does not record who proposed a step or whether a human accepted it, and
+  inventing that is the fabrication the protocol exists to prevent. Unknown
+  event kinds raise rather than being skipped, so a Gents release that adds an
+  event type is reported instead of silently dropped; unknown *fields* are
+  tolerated, because an additive release cannot corrupt a mapping that reads by
+  name. The importer writes to stdout or `--output` and never into the session
+  store, so an imported record is reviewable before it becomes part of a
+  project's provenance. Pinned by a real v0.14.0 export in
+  `tests/fixtures/gents_timeline_v0_14_0.json`.
+
+- **`trace-mcp identity repair-ids <key>`** renumbers a store that already
+  carries aliased ids. The first occurrence keeps its id and later ones take
+  fresh ids in array order; the original is copied to
+  `*.json.prerepair-<date>`, the mapping and before/after digests are appended
+  to `migrations.jsonl`, and `--dry-run` reports the mapping without writing.
+  It is snapshot-gated, checks that the target store is quiescent, holds the
+  store lock, and **refuses outright** when a duplicated id appears in a
+  structured field rather than guessing which record the reference meant; a
+  mention in free text is reported but does not block. When the registry cannot
+  resolve the argument it falls back to the canonical store stem, so stray and
+  quarantine stores — which `identity check` also flags — can be repaired.
+
+- **`trace-mcp identity check` reports duplicate learning ids** per store,
+  naming the repair command. Detection lives in the core identity report
+  (filesystem-only, no extension import), so the CLI and any future core caller
+  cannot disagree about the same file.
+
+- **A golden walkthrough of the provenance loop, generated from one scenario**
+  (`examples/walkthrough/`). A single scenario definition
+  (`scenario.py`) — start a session, propose a decision, a human accepts it,
+  log a contribution and a correction, end the session and read the attribution
+  audit, query the decision back to confirm it was proposed by the AI and
+  resolved by the human, add and extract learnings (idempotently), recall one
+  with a score, and watch a cross-project read *and* write both fail closed
+  with no foreign store created — feeds two consumers that cannot disagree:
+  the committed `WALKTHROUGH.md` a person reads (rendered by
+  `render_walkthrough.py`), and `tests/test_walkthrough_e2e.py`, which drives
+  the same steps against a live server over MCP stdio. A sync test re-renders
+  the scenario and diffs it against the committed markdown, so the manual doc
+  and the automated run can never drift — the exact failure mode a walkthrough
+  is meant to prevent. The run pins a hermetic project with all data
+  directories redirected to a scratch location, so it also serves as the
+  post-deploy canary flow without touching a real `~/.trace`.
+
+- **Cross-process concurrency smoke for the knowledge store**
+  (`tests/test_concurrency_smoke.py`). Two real server processes speaking MCP
+  over stdio share one temporary TRACE home and add learnings in interleaved
+  rounds; the test asserts that every learning lands, that ids are unique
+  across writers, that the on-disk store agrees with every response, and that
+  no lock or temp file is left behind. It then SIGKILLs one writer with an add
+  in flight — at a fixed schedule of offsets, and deterministically at the
+  instant it is about to rename its temp file onto the store, where a
+  test-only gate holds that one server — and asserts that the store is
+  exactly the pre-add or the post-add state and that the surviving process
+  keeps adding: a lock orphaned by a dead PID is stolen, while one held by a
+  live PID is never stolen (the peer's add returns an error, and the server
+  log carries the lock's own refusal, rather than writing unlocked). The store
+  lock (INV-8) and the atomic store write were previously pinned only
+  in-process; a migration that consolidates live stores relies on exactly
+  these guarantees across processes, so a green run of this module is a
+  precondition for it — registered as such under INV-8 in
+  `docs/INVARIANTS.md` — alongside the migration's own rehearsal on a cloned
+  home. The module pins behavior across process death and atomic rename
+  visibility only: the store write does not fsync, so it makes no claim about
+  durability across a kernel crash or power loss.
+
+- **`trace-mcp fleet-check [ROOTS...] [--live] [--json]`.** Runs the deployed-state
+  doctor over every project declaring a TRACE server under the given roots and
+  rolls failures up by check, which is the view a fleet actually needs: not
+  "these 23 projects are broken" but "this one defect appears in 23 projects".
+  Roots come from arguments or `TRACE_FLEET_ROOTS`; with neither, the command
+  exits as a usage error rather than guessing a directory — a checker that
+  assumes one machine's layout silently surveys nothing on another and reports
+  that as a healthy fleet. The walk is depth-capped, skips dependency and VCS
+  directories, does not follow symlinks, and reports a project once however many
+  roots reach it. Unreadable roots and unparseable configs are reported and make
+  the sweep non-clean; a project whose check raises is reported as failed rather
+  than ending the sweep. Directories that cannot be read are reported and make
+  the sweep non-clean — a partial survey presented as a complete one is the
+  failure this tool exists to prevent — while branches left un-descended at the
+  depth cap are reported as a count (a real tree truncates thousands of times,
+  and a flag that is always false is a flag nobody reads); `--max-depth` raises
+  the limit. `--live` lists the commands it would run and requires `--yes` before
+  executing any of them, since a sweep reaches directories the operator never
+  named individually.
+
+- **`trace-mcp doctor [DIR] [--live] [--json]` — deployed-state conformance
+  (INV-11).** The unit suite proves the source tree is correct; it cannot prove
+  a *deployment* is. The doctor checks one project directory against this
+  build's own shipped artifacts: the `.mcp.json` launch entry (uvx command, a
+  resolvable `--from` source that is not the unrelated PyPI distribution, the
+  three trace-learn `--with` extras, a refresh flag), the host hook deployment
+  (all shipped scripts present, executable, carrying this build's
+  `[trace-hooks vX.Y]` stamp, registered in `settings.json`, and — the defect
+  that left the decision-audit hook dead in most deployed projects — attached
+  to the namespaced `mcp__<server-key>__trace_end_session` matcher), and the
+  three project-pin sites, which must all canonicalize to one key. `--live`
+  additionally spawns the project's own configured command and verifies the
+  build it actually serves (version and the 22-tool surface), which is the only
+  way to catch a warm package cache serving a stale wheel despite
+  `--refresh-package`; the finding carries the remedy. Exits non-zero on any
+  failing check, mirroring `trace-mcp identity check`; `--json` emits a
+  `DoctorReport` with stable check ids (`0` clean, `1` findings, `2` usage error; diagnostics on stderr).
+  A hook is checked under **its own host event** — one registered under the
+  wrong event is installed, current, executable, and still never fires — and
+  TRACE-stamped scripts this build no longer ships are reported as leftovers.
+
+- **A missing or refused OpenAI key is now loud.** Cloud access requested with
+  no key resolvable is reported in the `trace_start_session` banner and in every
+  affected `trace_learn_*` response, naming the three places searched and the
+  file to fix; a key the provider rejects (401/403) raises `ApiKeyRejectedError`
+  regardless of `TRACE_STRICT_LLM` — on the matching, extraction, and embedding
+  paths alike — with the credential scrubbed from the message and its own error
+  code, so it is never reported as a strict-mode problem the reader cannot fix.
+  Only a 401 counts: a 403 also covers model access, region, and proxy failures,
+  which stay on the strict-mode path rather than being misdiagnosed as a bad
+  key. Strict mode governs whether degradation is acceptable, never whether
+  the user is told their credential was refused — silently returning
+  keyword-ranked results from a broken configuration hands back plausible output
+  and looks exactly like success.
+
+- **INV-11 — a freshly initialized project is conformance-clean.** A new
+  registry row binds the installer's output to the checker's expectations, so
+  template rot (a hook matcher that never fires, a stale asset, a launch config
+  missing the extras that make a 22-tool server) fails at PR time instead of
+  months later on a consumer's machine. The guard is parametrized over the
+  adapter registry: a new host adapter is checked the moment it ships.
+
+- **Orientation docs.** [`docs/ONBOARDING.md`](docs/ONBOARDING.md) maps the
+  codebase for a developer and the tool surface for a user;
+  [`docs/WHAT-IS-TRACE.md`](docs/WHAT-IS-TRACE.md) explains the project in
+  plain language for a reader who does not write code. A guide for running
+  TRACE beside the Gents agent runtime ships alongside the importer.
+
+### Changed
+
+- **Knowledge-store writes fail closed on aliased ids.** `save_store` and
+  `add_learning` raise `DuplicateLearningIdError`, and `identity merge-stores`
+  refuses an aliased target before grafting anything, so a merge can no longer
+  consume its sources into premerge backups while spreading the aliasing. Reads
+  are deliberately unchanged: an affected store still loads, lists, and exports,
+  which is what keeps it repairable. Recall keeps working too — its recall-count
+  and lazy-embedding bookkeeping is dropped with a notice on the response instead
+  of failing the call, since that write mints no id. Every learn tool reports a
+  refused write as `duplicate_learning_ids` with the repair command in `detail`,
+  rather than the generic failure a bare handler would return.
+
+- **The OpenAI API key is now per project: `./.env` overrides `~/.trace/.env`.**
+  The precedence was inverted — the machine-global file shadowed every
+  project's own file — so a key placed in a project was silently ignored, which
+  is indistinguishable from having no key at all. An exported environment
+  variable still wins over both. Each project having its own credential means a
+  leaked or exhausted key exposes one project rather than every project on the
+  machine, the same isolation TRACE already gives sessions and knowledge stores.
+  `~/.trace/.env` remains a fallback for projects with no key of their own, and
+  that fallback is now announced instead of assumed. A committed `.env.example`
+  documents the file.
+
+- **A blank value never overrides a real one, in any source.** A copied
+  template containing a bare `OPENAI_API_KEY=` would otherwise mask a working
+  key from a lower-priority file — and, because such a template also leaves the
+  cloud flags off, without tripping the missing-key warning either. The same
+  applies to an exported-but-empty variable (`docker run -e OPENAI_API_KEY`).
+  To stop a project using an inherited key, set `TRACE_LOCAL_ONLY=true` rather
+  than blanking the value.
+
+- **`TRACE_LOCAL_ONLY` is a restrict-only ratchet.** It is ORed across every
+  configuration source: any source may switch the no-egress kill switch on, and
+  none may switch it off. Without this, the precedence change above would let a
+  project `.env` opt out of a machine-wide privacy policy.
+
+### Fixed
+
+- **The trace-learn extension no longer fails to register when its configured
+  backend cannot be built.** Strict mode's refusal to degrade previously escaped
+  into the extension loader, so the server came up with the 17 core tools and no
+  explanation — the same silent-degradation shape the refusal exists to prevent.
+  It now registers with keyword matching and repeats the reason on every
+  affected response.
+
+- **Learning ids are no longer reused after a delete.** `KnowledgeStore` now
+  carries a persisted monotonic counter (`next_id`) and mints ids from it, so
+  forgetting the highest learning and adding another gives the new content a
+  fresh id instead of the released one. Previously the next id was
+  `max(existing) + 1`, which handed a recycled id to different content and left
+  dedup, recall counts, the positional embedding sidecar, and every recorded
+  reference pointing at two records with no way to tell them apart. Stores
+  written before the counter existed initialize it on load; a counter found
+  below the highest id present is raised (never lowered) and the anomaly is
+  logged. Registered as INV-12 in `docs/INVARIANTS.md` with an enumeration guard
+  over every site that appends a learning.
+
+- **Learn tools now enforce the `TRACE_PROJECT` pin (INV-9, ADR-006).** All
+  five `trace_learn_*` tools resolve their `project` argument through the same
+  scope rule as `trace_start_session`: under a pin, an omitted `project`
+  resolves to the pinned project and a label resolving to any other key errors
+  naming both keys; unpinned, an explicit label is required. Previously a
+  pinned server accepted any foreign label on the learn surface — a
+  cross-project read/write bypass of the documented fail-closed guarantee.
+  `project` is now optional on all five tools (it was required), which is
+  backwards-compatible for MCP callers, which pass arguments by name. When a
+  pinned call is accepted through a registry alias whose canonical form
+  differs from the pinned key, the operation is keyed to the pinned project's
+  store — an accepted alias can never open a different store file than the
+  project it was authorized against.
+
+- **`trace_learn_recall` no longer returns unranked listings dressed as
+  results.** A call with neither `context`/`query` nor `tags` previously
+  returned the store's first N learnings in insertion order under a
+  `"results"` key, with no scores and no warning — indistinguishable from a
+  ranked match. It now returns an explicit error pointing at
+  `trace_learn_list`; whitespace-only query text and blank tag elements are
+  treated as absent rather than ranked against; and every ranked recall
+  response carries a `backend` field naming the engine selected for the
+  ranking (`bm25`, `embedding:<model>`, `llm:<model>` — the embedding backend
+  scores learnings that lack embeddings through its internal BM25 fallback),
+  so a degraded backend configuration is visible to the caller. This is a
+  protocol-visible behavioral change: a caller that relied on the no-query
+  listing must switch to `trace_learn_list`.
+
+- **`trace_learn_recall` accepts `query` as an alias for `context`.** MCP
+  argument models silently drop unknown fields, so a client sending
+  `query=...` used to have its query text ignored entirely (surfacing as
+  insertion-order "results"). Either name works now; passing both with
+  different values is an error, never a silent preference.
+
+- **`trace-mcp-init` now generates a config that loads the trace-learn
+  extension.** The launch entry it wrote carried no `--with` packages, so the
+  extension could not import its optional dependencies and did not register:
+  the server started, recorded provenance, and exposed 17 tools where the
+  documentation promises 22, with nothing reporting the gap — a missing
+  optional dependency is not an error, so the five tools were simply absent.
+  This was reached by the documented onboarding path, which made it the first
+  experience of the project for anyone following the README. The canonical
+  entry now carries `openai`, `numpy`, and `model2vec`. They stay `--with`
+  flags rather than hard dependencies, so a core install remains `mcp` +
+  `pydantic`, and installing `openai` does not enable cloud calls — LLM
+  matching and extraction remain opt-in behind `TRACE_LLM_ENABLED` and a key.
+  Re-running init drops packages the fresh arguments already carry, so a
+  config that already lists the extras does not accumulate a second copy of
+  each on every run.
+
+- **The decision-audit hook now fires, because its matcher is derived from the
+  MCP server key.** Claude Code hook matchers match the full tool name exactly
+  — a plain string is not a substring pattern — and hosts namespace MCP tools
+  as `mcp__<server-key>__<tool>`. The settings template registered the
+  PostToolUse decision-audit hook under the bare matcher `trace_end_session`,
+  which matches no real tool name, so the hook never fired in a project
+  installed from the template. The `mcpServers` key is now a single shared
+  constant (`adapters.base.MCP_SERVER_KEY`): `trace-mcp-init` writes
+  `.mcp.json` entries under it and the installer derives the matcher from it at
+  install time, so the two cannot drift. Re-running install migrates a stale
+  registration in place — removed only when it runs the installer's own hook
+  commands *and* carries a matcher form the installer is known to have shipped
+  — while an entry whose fields a user tuned is respected rather than reset or
+  duplicated, and a malformed settings shape is skipped in place. Existing
+  consumers pick this up when `trace-mcp-init` runs again against their
+  project; a server rebuild alone does not rewrite `.claude/settings.json`.
+
+- **The MCP initialize handshake reports trace-mcp's own version.** FastMCP
+  exposes no version parameter and defaults the underlying server's version to
+  the `mcp` library's, so `serverInfo` told clients they were talking to, say,
+  `1.29.0` when the running server was trace-mcp — a misleading signal for
+  fleet health probes and client-side diagnostics, and the field a live probe
+  relies on to tell a warm cached wheel from a current one. The package version
+  is stamped on the underlying server at import time. The stamp targets a
+  private FastMCP attribute, so it is wrapped defensively: a future `mcp` 1.x
+  release that moves the attribute degrades the cosmetic misreport to a logged
+  warning instead of an import-time crash that would take every consumer down
+  on its next cold-resolved server start.
+
+- **`trace-mcp validate` applies the specification's semantic rules, not only
+  the schema.** Validation checked a document against the published JSON Schema
+  and stopped there, so it reported PASS on records the specification calls
+  invalid. The schema cannot express the cross-field rules of §4: it declares
+  `resolved_by` optional and every event-data field optional, so a decision
+  claiming `accepted` with no resolver (§4.2) and an event whose type
+  contradicts its populated data field (§4.1) both satisfy it. A validator that
+  passes those tells a producer its output conforms when it does not, which is
+  the failure that matters most for a format meant to be written by
+  implementations other than this one. Validation is now two passes: the schema
+  for structure, then the models for the semantic rules. A semantic failure
+  reports the field path that carried it and, like an unreadable file, does not
+  stop a multi-file run.
+
+- **Learn extraction never draws on imported records or machine-measured
+  decisions.** A session an importer built from another system's data is
+  provenance, not a learning source, and a decision made by a machine gate is
+  not conversation; both were being turned into knowledge-store entries. The
+  cost is concrete: a gate's revert decisions are one template filled with
+  identifiers and numbers, so near-identical ones score 0.54–0.64 Jaccard
+  against a 0.85 dedup threshold — N reverts become N entries, each naming a
+  version identifier meaningful only inside one run, and each then riding in
+  the dedup prompt of every later extraction in that project. Two pure
+  predicates decide it: an imported record is a session whose metadata carries
+  both a source and an importer as non-empty strings, and a machine-measured
+  decision is one whose typed confidence block carries the contract key, read
+  through the set of fields the document actually supplied. An imported record
+  yields nothing from either backend, and the LLM path returns on an empty
+  event block before it attests any egress, so such a record never reaches a
+  cloud provider. A machine-measured decision is skipped wherever it appears,
+  so a human annotation logged beside one still extracts.
+
+- **INV-10 guards every restatement of the wire version, not three of them.**
+  The spec/wire site-set registered the specification heading, the schema
+  filename, and its `$id`, while five further prose restatements went
+  unchecked: the README and project-instruction version banners, the onboarding
+  state line, the specification's own §3.1 default that tells a producer what
+  to stamp into `trace_version`, and the Appendix A example people copy. A
+  `SCHEMA_VERSION` bump could therefore ship with the front door and the
+  specification's producer guidance still naming the previous wire version —
+  the shape the registry exists to close.
+
+## [0.5.0] — 2026-07-30
+
+### Added
+
+- **A shipped-launch-path guard.** `TestShippedLaunchPath` installs the built
+  wheel into a clean virtualenv with no lockfile — the dependency resolution a
+  consumer actually gets — and asserts the server imports and registers its core
+  tools. The existing `uvx` check covers the same path but passes
+  `--refresh-package trace-mcp`, which refreshes the package and not its
+  transitive dependencies, so a machine whose cache already held a working
+  environment stayed green while a cold-cache consumer got a dead server. The
+  new guard cannot be masked that way, and it asserts that tools *register*
+  rather than only that the module imports.
+- **A provenance figure generated from real capture data.** `scripts/make_provenance_animation.py`
+  renders any session file as a self-contained animated SVG plus a still frame,
+  with light and dark styling and no external assets. Event type, category,
+  actor, direction/execution, disposition and correction targets are copied
+  verbatim; only descriptions are shortened, at a word boundary.
+
+- **Honest bounded session orientation.** `session_brief` scans newest-first up
+  to a `read_ceiling` (default 200 files), stopping early at `scan_cap`
+  matches, and reports `window_exhausted` when the ceiling was hit with more
+  files beyond it. The previous single 25-file window made the session-start
+  orientation assert a false absolute — a project whose newest session sat 26
+  files back in a busy shared store read as "No prior TRACE sessions". The
+  bootstrap now says "no sessions found in the newest ~N (older history not
+  scanned)" in that case; the absolute claim survives only when the whole
+  store was actually seen. `session_brief` is also promoted onto the
+  `TraceStorage` contract with an honest generic default, so a non-file
+  backend cannot silently lack orientation.
+- **`TRACE_REQUIRE_PIN` closes the auto-create path.** The flag previously
+  gated only `trace_start_session`, so on a require-pin fleet an unpinned
+  stray process still auto-created quarantine sessions on its first logging
+  call — the exact capture the operator opted to fail closed on. Both
+  session-creation paths now refuse; using an *existing* session by explicit
+  id keeps working, and the flag remains default-off (capture-over-attribution
+  stays the default posture).
+- **Per-project scratchpad fallback.** The global fallback directory
+  (`~/.trace/scratchpads/`) is shared by every project, and the scratchpad is
+  most-recent-session-only — so whichever project ended a session last
+  silently clobbered another project's context-restoration buffer. Fallback
+  files are now named by canonical project key (registry-aware, so an aliased
+  legacy label lands in its real project's buffer). A project checkout's
+  `.claude/` and an explicit `TRACE_SCRATCHPAD_DIR` keep the stable
+  `SCRATCHPAD.md` name — those locations are per-project by construction.
+- **Egress ledger rows carry a `project_key` column (all three purposes).** The
+  matching and embedding attest sites sit in layers that deliberately know
+  nothing about projects, so their rows were unattributable; the canonical key
+  now travels from the tool boundary in a context variable (`egress_project`)
+  and every row is attributed. The extraction site passes the key explicitly,
+  resolved through the alias registry so an aliased legacy label attributes to
+  its real project. Rows written before v0.5 carry no key and are never
+  rewritten. The ledger stays one global append-only file.
+- **Per-project privacy ratchet is now applied** (`effective_learn_config`).
+  A project's registry entry (`local_only` / `llm_enabled` /
+  `embedding_backend_max`) tightens the machine-global config at all three
+  egress decision points — extraction, LLM matching, and embedding-backend
+  selection — for that project's calls, pinned or not. Restrict-only: an entry
+  can force a confidentiality-bound project fully local against a permissive
+  global, never loosen a global restriction. If the registry exists but is
+  unreadable, learn tools fail closed (the posture that would forbid the
+  egress may live in the unreadable file) while session capture is unaffected;
+  the auto-recall/extract hooks skip loudly instead of raising, because they
+  run inside capture paths that must complete.
+- **Project-wide extraction enumerates the store by direct glob.** It
+  previously went through the query layer, whose 500-file scan cap silently
+  hid the oldest sessions of a large store — exactly the ones a project-wide
+  extraction exists to mine. Matching is by canonical key; storage backends
+  without a filesystem location fall back to the query path.
+
+### Changed
+
+- **`load_store` fails closed on a corrupt knowledge store.** A file that
+  exists but cannot be parsed or validated now raises `StoreLoadError` instead
+  of returning a fresh empty store. The silent fallback meant the next save
+  atomically replaced the damaged-but-recoverable original with an empty
+  store, and read to callers as "this project has no learnings" when the truth
+  was "this project's learnings are unreadable". A missing file still returns
+  a fresh store (normal first use). Read aggregates (`project_summary`,
+  self-cost) skip-and-report the damage rather than aborting; the learn tools
+  surface a clear error with the file untouched.
+
+- **`trace-mcp identity` migration tooling (ADR-006 S6).** Seven subcommands turn
+  the identity enforcement machinery into an operator can run against a store that
+  predates canonical keys, without ever rewriting a capture record:
+  - `snapshot` — back up `~/.trace` (counting by direct glob, so the oldest
+    sessions the 500-cap query would hide are included) and write the marker the
+    destructive phases require.
+  - `scan` — group every drifted label by canonical key into a human-editable
+    plan; writes no registry state.
+  - `apply` — mint the reviewed plan into the registry (idempotent; snapshot-gated).
+  - `check` — report drift (stray knowledge stores, session labels resolving to no
+    registered project, registry health); non-zero exit on findings. Shares one
+    drift-detection function with the health tool, so the two can never disagree.
+  - `merge-stores` — consolidate an alias group's knowledge stores into the
+    canonical-key store: Jaccard-deduped union, sources kept as `*.premerge-<date>`,
+    sidecar regenerated (never migrated), every merge logged to `migrations.jsonl`
+    with content hashes. Idempotent, snapshot-gated, and refuses to run while any
+    writer is active. The `auto` quarantine is never merged.
+  - `adopt` — re-home an `auto`-quarantine session into a real project, append-shaped
+    (records old→new as a `state_change` and stamps `project_key`, never an in-place
+    edit); refuses to relabel a real project's session.
+  - `bundle` — export one project (sessions, knowledge store, matching egress rows,
+    registry entry) as a self-contained tarball, selected by canonical match.
+- **Health check reports project identity.** `trace_health_check` gains a
+  `pinned` / `bound_project_key` / `registry` / `stray_knowledge_stores` block,
+  computed by the same core drift detector as `identity check`.
+
+- **Canonical project identity (spec v0.5.0, schema `trace-v0.5.json`).** A project
+  is now identified by a stable canonical key derived from its display label, rather
+  than by the label itself. Previously, storage identity and query identity were two
+  inconsistent equivalence relations over the same labels: session queries compared
+  labels with exact case-sensitive equality, so case variants of one project read as
+  separate projects, while the knowledge store's filename derivation on a
+  case-insensitive filesystem silently merged some of those same pairs. The canonical
+  key is casefolded and free of path separators, so filename identity equals semantic
+  identity and neither failure can occur.
+  - `metadata.project_key` (optional, spec §3.2.2) carries the key. It is
+    authoritative when present and is stamped only by a pinned server process, which
+    is the only configuration with an authoritative answer; an unpinned process
+    asserts nothing rather than guessing.
+  - Sessions written before v0.5 carry no key and resolve through the alias registry
+    or the canonical algorithm. **No capture record is rewritten to add the field** —
+    retroactively editing capture records is a larger provenance harm than the
+    missing field (spec §4.5, documented-divergence pattern).
+  - Spec §3.2.2 defines the key algorithm normatively and **independently of any
+    implementation's filename sanitization**, so a conforming producer cannot
+    accidentally define identity as "whatever my filesystem layer does".
+  - §4.5 forbids consumers from splitting one project across equal-key labels or
+    merging distinct keys.
+- **PROV export carries `trace:projectKey`** beside the untouched `trace:project`
+  display literal, plus an optional reified project entity carrying one
+  `trace:aliasLabel` per historical label. Both are new terms **within the frozen
+  `ns/v0.3#` namespace**, so no `@context` change is required and previously exported
+  documents are neither invalidated nor regenerated. `trace:project` keeps its
+  display-label meaning permanently — the exported corpus carries drifted labels
+  under it, and re-meaning the predicate would silently reinterpret those artifacts.
+  The key is resolved through the alias table, so a renamed project exports its real
+  key rather than one derived from its old label.
+- **Published project-registry interchange schema** (`schemas/trace-projects-v1.json`,
+  spec §7.2). Published rather than treated as private state because interpreting a
+  historical export depends on the alias table. Its `version` field is independent of
+  the session schema version — the two formats change on different cadences.
+- Markdown export gains a **Project key** line, shown only when the session actually
+  carries one.
+
+### Changed
+
+- `SCHEMA_VERSION` 0.4.1 → **0.5.0** (an on-disk format change), and the schema file
+  is renamed `trace-v0.4.json` → **`trace-v0.5.json`** with the `$id` cascade applied
+  across the generator, validator, docs, and conformance tests. Per ADR 002 D6 the
+  spec URL in `Session.context` and the PROV namespace URI **remain at v0.3** —
+  additive extensions are valid within the same namespace.
+- Backward and forward compatible in both directions: a v0.4 document validates
+  against the v0.5 schema (`project_key` is optional), and a v0.5 document validates
+  against the v0.4 schema (`additionalProperties` is permitted throughout).
+
+### Fixed
+
+- **The `mcp` dependency is bounded below 2.0.** `mcp` 2.0.0 removed
+  `mcp.server.fastmcp`, which `server.py` imports at module scope, so the
+  previously unbounded `mcp>=1.0.0` resolved to a release the server cannot
+  import — it died before registering a single tool, which a client reports as
+  a total absence of TRACE tools. Consumers launch with `uvx --refresh`, which
+  ignores the lockfile and re-resolves on every server start, so the break
+  reached every project the day the upstream major was published. Lifting the
+  bound requires porting to the `mcp` 2.x API (`mcp.server.mcpserver`).
+- **This checkout's own launch arguments match the canonical form.**
+  `--refresh` became `--refresh-package trace-mcp`, so a server start rebuilds
+  TRACE from the working tree without re-resolving the whole dependency tree,
+  and the redundant `--with filelock` was dropped. The relative `--from .` is
+  unchanged: it is the local-only guarantee asserted by
+  `test_mcp_json_uses_uvx`, since the `trace-mcp` name on PyPI belongs to an
+  unrelated project.
+
+
+- **`identity scan` and stray-store detection canonicalize the store filename
+  stem.** A knowledge store written before canonical keying keeps a legacy
+  filename — an uppercase or separator-bearing stem such as `REAP.json` — that a
+  case-insensitive filesystem still serves as its canonical project's store.
+  `scan` grouped stores by the raw stem, minting a phantom `REAP` group distinct
+  from the `reap` session group; the two then collided on `apply`'s
+  alias-uniqueness check. `find_stray_stores` compared the raw stem to registry
+  keys (its docstring said "canonical stem" but the code did not), so such a
+  store was reported stray even when its canonical key was registered — which
+  would make `identity check` fail its exit-0 verification permanently. Both
+  sites now classify by canonical key; the stray report still names the actual
+  filename so the operator can find it.
+- **`identity apply` no longer logs mints that never happened.** Migration
+  records were appended to `migrations.jsonl` inside the registry transaction;
+  when the write failed (e.g. an alias-uniqueness violation), the registry
+  correctly persisted nothing while the append-only audit log already claimed
+  the mints occurred. Records are now buffered and written only after the
+  registry commit — a migration log that lies is worse than no log at all.
+- **`identity merge-stores` refuses a corrupt target store.** The non-strict
+  loader returned a fresh store on corruption, so the merged result silently
+  replaced the damaged-but-recoverable original — the one file the merge keeps
+  no premerge backup of. The target is now loaded strictly and corruption
+  aborts the merge with the original untouched.
+- **`identity check` and `identity scan` treat the `auto` quarantine as an
+  expected population, not drift.** `check` flagged every `auto` session as an
+  unregistered label, so a store holding any auto session could never reach the
+  exit-0 verification the migration runbook requires; `scan` proposed a plan
+  entry for the reserved key that `apply` then re-refused. Reserved-key labels
+  are now excluded from both.
+- **`identity adopt` no longer rewrites the captured display label.** It
+  stamped `project_key` and also overwrote `metadata.project` — an in-place
+  mutation of a captured field beyond what the alias-table-first rule
+  sanctions. Only the additive key is stamped now; every identity-aware
+  consumer resolves the session through it while the record keeps showing what
+  was originally captured.
+- **`identity scan` refuses to overwrite an existing plan file.** The plan is
+  where the operator's decisions live between `scan` and `apply`; a re-run
+  silently clobbered those edits.
+- **`identity snapshot` archives a relocated knowledge directory.** With
+  `TRACE_KNOWLEDGE_DIR` outside the TRACE home, stores were counted in the
+  manifest but absent from the archive — and the marker the snapshot writes is
+  what green-lights the destructive merge phase. The external directory is now
+  included and the manifest records its location.
+- **`identity merge-stores` holds the target store's lock** for the
+  load→union→save→rename span (the mtime/lock preflight is advisory and racy),
+  and `--key` now resolves aliases and display labels to the registered key
+  instead of skipping them.
+- **The project registry did not resolve an entry by its own display label.**
+  `ProjectRegistry.resolve()` matched a label against an entry's key and aliases but
+  not its display label, so an entry whose display label does not canonicalize to its
+  key was unreachable by that label — leaving every session recorded under it
+  unattributable. Not reachable through enrollment (which derives the key from the
+  label) but reachable through a human-authored migration plan, which may pair any
+  label with any key. Display labels now participate in resolution and, necessarily,
+  in the alias-uniqueness check: an identifier that resolves must also be checked for
+  uniqueness, or the registry could hold two entries that one label resolves to
+  ambiguously.
+
+### Security
+
+- **`trace-mcp init` no longer writes a dependency-confused `.mcp.json` from
+  an installed wheel.** When run from an installed copy (module under
+  `site-packages`) with no `TRACE_SOURCE_PATH` set, source resolution
+  previously fell back to writing `uvx --from trace-mcp` — but the name
+  `trace-mcp` on PyPI belongs to an unrelated package, so the next MCP server
+  start would have downloaded and executed third-party code. Resolution now
+  **fails closed** (`TraceSourceUnresolvedError`; `trace-mcp init` exits 1,
+  including on `--dry-run`) with the remedy in the message: set
+  `TRACE_SOURCE_PATH=/abs/path/to/your/TRACE/clone`. Source checkouts and the
+  `TRACE_SOURCE_PATH` override behave as before; the server entry is now built
+  lazily at write time so importing the module never raises.
+
+### Cloud LLM matching/extraction now opt-in (behavior change)
+
+- **`TRACE_LLM_ENABLED` now defaults to `false`.** An `OPENAI_API_KEY` on the
+  machine no longer opts sessions into cloud LLM matching and extraction by
+  itself — completing the local-first posture already applied to embeddings
+  (where `auto` never selects OpenAI). Unset now means rule-based/BM25; cloud
+  LLM requires the explicit `TRACE_LLM_ENABLED=true` opt-in. To restore the
+  previous behavior everywhere, set `TRACE_LLM_ENABLED=true` once in
+  `~/.trace/.env`. When a key is present but the flag is unset, config load
+  logs an INFO pointing at the flag (suppressed when the flag is explicitly
+  `false` or `TRACE_LOCAL_ONLY` is set). The `LearnConfig.llm_enabled`
+  dataclass default flips to `False` to match, so directly-constructed
+  configs are safe-by-default too.
+
+### Egress kill switch + point-of-use disclosure
+
+- **`TRACE_LOCAL_ONLY=1` — one switch, no egress anywhere.** Forces all three
+  `trace-learn` cloud paths off in a single flag: OpenAI embeddings, LLM
+  extraction, and LLM matching. Enforced at config load (it overrides an explicit
+  `TRACE_EMBEDDING_BACKEND=openai` down to local `auto` and disables LLM features
+  regardless of key presence), so every downstream reader honors it. This closes
+  the "off-switch trap" where disabling one path (`TRACE_LLM_ENABLED=false` or
+  `TRACE_EMBEDDING_BACKEND=none`) still left the other egressing content.
+- **Point-of-use egress disclosure.** The `trace_learn_extract`,
+  `trace_learn_recall`, and `trace_learn_add` tool docstrings now state, at the
+  point of use, that content is sent to OpenAI when the OpenAI backend/LLM is
+  configured, and how to stay local (`TRACE_LOCAL_ONLY=1`).
+- **Egress ledger (egress-as-provenance).** Every cloud call trace-learn makes
+  (LLM extraction, LLM matching, OpenAI embeddings) now appends one JSONL line
+  to `~/.trace/egress.jsonl` (override: `TRACE_EGRESS_LOG`) — recording the
+  FACT of the call (provider, endpoint, model, purpose, item count, and
+  project/session where the call site knows them), never the content. The
+  attestation is written **before** the request and **fails closed**: if the
+  ledger cannot be written, the cloud call does not happen — under permissive
+  config the caller falls back to the local path (BM25 / rule-based /
+  un-embedded), under strict config it raises. Registered as **INV-5** in
+  `docs/INVARIANTS.md` with an AST enumeration guard, so a new OpenAI call
+  site cannot merge without attesting. The test suite isolates the ledger the
+  same way it isolates the session/knowledge stores (`tests/conftest.py`).
+
+### Local-strong embedding tier + local-first default
+
+- **Fully-local, open-weight embedding option (`fastembed` backend).** Adds a
+  `TRACE_EMBEDDING_BACKEND=fastembed` provider (ONNX Runtime, no PyTorch) so
+  users can get retrieval markedly stronger than the static `model2vec`/BM25
+  floor **without** sending any content to OpenAI. Ships as an optional extra,
+  `pip install 'trace-mcp[local-embed]'`. A curated, permissive-license model
+  allowlist (`snowflake/snowflake-arctic-embed-s` default, plus `-m`,
+  `BAAI/bge-small-en-v1.5`, `BAAI/bge-base-en-v1.5`) is selectable via
+  `TRACE_EMBEDDING_MODEL`; any other id is honored with a license/dimension
+  warning. See [docs/embeddings.md](docs/embeddings.md).
+- **Bring-your-own OpenAI-compatible endpoint (`base_url` passthrough).** The
+  `openai` backend now honors `OPENAI_BASE_URL` / `TRACE_OPENAI_BASE_URL`, so it
+  can target any local OpenAI-compatible server (Ollama / LM Studio /
+  text-embeddings-inference / vLLM) — a fully-local path that keeps TRACE out of
+  model-weight and license management.
+- **Local-first `auto` selection (behavior change).** `auto` now prefers a local
+  backend (`fastembed` → `model2vec` → BM25) and **never** auto-selects OpenAI:
+  a mere `OPENAI_API_KEY` on the machine no longer routes embedding content to a
+  third party. Cloud embeddings are opt-in via `TRACE_EMBEDDING_BACKEND=openai`.
+  Existing stores re-embed to the newly-selected model on next recall (the model
+  change is detected per learning); the `.npy` sidecar writer now tolerates
+  mixed-dimension rows during that migration instead of erroring.
+
+### Learning creation-path provenance
+
+- **`Learning.extraction_method` and `Learning.generated_by`.** Every learning
+  now records how it was created: `"llm"` (cloud extraction — the content is
+  model output, so `generated_by` names the generating model), `"rule-based"`
+  (local extractor — the content is quoted from session events), or `"manual"`
+  (`trace_learn_add`). Records predating the fields load as `None`; tool
+  responses (`learning_to_dict`) expose both fields so clients can distinguish
+  model-generated from quoted content. This closes the gap where a paraphrased
+  LLM extraction was indistinguishable from a verbatim event quote in the
+  knowledge store.
+
+### Diagnostics
+
+- **Offline self-cost report (`python -m trace_mcp.selfcost`).** A standalone,
+  read-only analyzer that estimates TRACE's own token footprint without adding
+  any MCP tool (so running it does not enlarge the tool-schema surface it
+  measures) and without touching any session record. It reports the tool-schema
+  surface under cold-write/warm-read prompt-caching regimes — so the
+  always-loaded cost is presented as a write-once/cache-read amount, not
+  mis-stated as a full per-turn tax — a per-session estimate of the tokens spent
+  authoring `trace_*` calls (scoped to `host="mcp"` events, since
+  `host="internal"/"external"` calls are logged by reference and not sizeable
+  from the server side), and a trace-learn reuse signal carrying a data-quality
+  flag (`recall_count` tracks surfacing, not use, so it is never converted to
+  "tokens saved"). Every figure is a labeled `chars/4` estimate, and the report
+  points at the host's OpenTelemetry `claude_code.token.usage` metric for the
+  authoritative measured number. The carbon/token telemetry direction is
+  recorded in [docs/adr/004-telemetry-sidecar.md](docs/adr/004-telemetry-sidecar.md):
+  carbon and self-cost are one optional, estimate-provenanced sidecar concern,
+  never core.
+
+### Integrity hardening
+
+- **The per-session lock now fails closed.** On lock-acquisition timeout,
+  `JsonFileStorage.lock` previously logged to stderr and proceeded **unlocked**,
+  silently reopening the lost-update / duplicate-event-id window the lock exists
+  to close. It now raises `TimeoutError` (surfaced to the MCP caller as a
+  structured error) — a missed lock is visible, never silent. Stale-lock theft
+  is keyed on **holder PID liveness** (single-host) with a `<pid>:<time_ns>`
+  token re-verified before unlink, so a live long-running holder's lock is never
+  stolen and a crashed holder's lock is reclaimed at once. **Behavior change:**
+  session writes can now surface a lock-timeout error rather than degrading to an
+  unsynchronized write.
+- **`append_event` refuses to mint a duplicate event id** instead of silently
+  aliasing `revises_event_id` / `parent_event_id` / `corrects_event_ids`
+  references when the on-disk record is already in an aliased state.
+- **One schema-invalid session file no longer bricks the read aggregates.**
+  `trace_project_summary` and `trace_health_check` now catch per-session
+  `ValidationError` / `JSONDecodeError`, log and skip the bad record, and return
+  the skipped ids in a new **`skipped_sessions`** list — instead of aborting the
+  whole aggregate on one bad file. **Behavior change:** both tools' return dicts
+  gain a `skipped_sessions: list[str]` key.
+- **Forward-compatible schema (no silent field-stripping).** Schema models now
+  preserve unknown fields (`extra="allow"` via a shared `TraceModel` base), so an
+  older server that loads a newer-schema session and rewrites it no longer
+  durably deletes fields it did not recognize; `get_session` logs a version-skew
+  warning. `Environment` intentionally stays closed (legacy-field drop). The
+  generated JSON Schema now carries `additionalProperties: true` on those models.
+- **Consolidated the three session write paths** (`append_event`, `end_session`,
+  `resolve_decision`) onto a single `locked_disk_session` helper — the lock +
+  disk-reload + immutability sequence was previously hand-copied across all three
+  — so "write under the fail-closed lock against disk truth" is one
+  implementation. Registered as **INV-1** in the new `docs/INVARIANTS.md`.
+
+### Fixed
+
+- **Auto-created sessions no longer inherit a foreign project.** `_infer_project`
+  fell back to the most-recent session across the *shared* store, so when the
+  newest session on disk belonged to a different project, a pointer-less
+  `trace_log_*` call auto-created a session — and routed any learnings later
+  extracted from it — under that unrelated project. With no
+  `TRACE_DEFAULT_PROJECT` it now returns the stable `"auto"` sentinel rather than
+  a foreign project name.
+- **Corrected the OpenAI-key precedence docstring.** `config.py` described
+  resolution as "first match wins" and labeled `./.env` a "project-level
+  override", but the real behavior is a merge where the global `~/.trace/.env`
+  OVERRIDES a project-local `./.env` (env var > global > project). The docstring
+  now states this so a project's `./.env` is not mistaken for an override of the
+  shared key.
+- **Wheels built from the sdist were missing 7 runtime files** (`py.typed` and
+  all six `adapters/claude_code/assets/` files: the settings template, the
+  CLAUDE block, and the four hook scripts). The sdist allowlist's only src
+  pattern was `src/trace_mcp/**/*.py`, and `uv build` constructs the wheel
+  *from the sdist* — so a clean-venv install of the built wheel installed
+  zero hooks silently, then `trace-mcp-init` crashed with `FileNotFoundError`.
+  Local `uvx --from <path>` launches build direct-from-tree and were never
+  affected. New **positive packaging guards**
+  (`tests/test_packaging_artifacts.py`) build via `uv build` and assert
+  required files are *present* in both artifacts (the release leak-guard only
+  ever checked that private files were *absent*), including a clean-venv
+  wheel-install end-to-end test.
+- **`trace-mcp validate` crashed on any installed package**: it loaded
+  `scripts/validate_session.py` via a repo-relative path that only exists in a
+  source checkout, and the JSON Schema wasn't shipped. The validator now lives
+  in the package (`trace_mcp.validate`) and loads `schemas/trace-v0.4.json` as
+  package data via `importlib.resources`. `scripts/validate_session.py`
+  remains as a compatibility shim. `scripts/generate_schema.py` writes both
+  byte-identical schema copies; freshness and identity are test-guarded.
+- **README now renders correctly on PyPI**: all relative links and image srcs
+  (which 404 without repo context) are absolute GitHub / raw.githubusercontent
+  URLs, enforced by a regression test (`tests/test_readme_pypi.py`).
+
+### Added
+
+- `validate` optional extra (`pip install "trace-mcp[validate]"`) for the
+  `jsonschema` dependency backing `trace-mcp validate`; also included in
+  `[all]`. A missing dependency now produces an install hint instead of a
+  stack trace.
+
+### Changed
+
+- **Test-suite hygiene: the default suite no longer reads or writes the
+  developer's real `~/.trace` data.** A root conftest points
+  `TRACE_KNOWLEDGE_DIR`, `TRACE_SESSIONS_DIR`, and `TRACE_SCRATCHPAD_DIR` at
+  per-run temp directories, set in `pytest_configure` so even module-level
+  imports during collection resolve the isolated paths. Previously, suite
+  runs deposited `e2e-*`/`fm-test`/`guard-e2e`/`export-test` stores into the
+  real knowledge dir and **overwrote the developer's real
+  `.claude/SCRATCHPAD.md` on every run** (session-end scratchpads from e2e
+  server subprocesses). All four real-data test classes
+  (`TestRealDataEmbeddings`, `TestRealDataE2E`, `TestRealSessionDataIntegrity`,
+  `TestCrossProjectConsistency`) are opt-in via `TRACE_REAL_DATA_TESTS=1` — the
+  registered `real_data` marker is load-bearing (a conftest collection hook
+  skips marked tests unless opted in, so a class can't forget its gate), and
+  their recall expectations are derived from store content at runtime instead
+  of pinned learning IDs, so personal-store drift can't fail them. Config
+  tests that need key-absence scrub the env var, `~/.trace/.env`, **and** the
+  checkout's `./.env`; the real-LLM integration tests intentionally still
+  read the developer's real key. `LearnConfig.openai_api_key` is `repr=False`
+  so the key cannot leak into pytest output or logs; the uvx installation
+  check (`test_mcp_json_command_resolves`) skips instead of failing when uv
+  isn't installed.
+
+## [0.4.2] — 2026-06-01
+
+> **Crash-surface + publication-hardening release.** Reduces TRACE's contribution to a Claude Code extended-thinking API-400 (a *client-side* signed-thinking-block re-serialization bug that TRACE cannot fix — only avoid triggering), fixes a critical storage data-loss bug, caps query payloads, and makes the package safe and ready to publish. The upstream client report is in `docs/upstream-claude-code-thinking-block-400.md`.
+
+### Fixed
+- **CRITICAL — storage lost-update / event-ID collision.** `append_event` did an unsynchronized read-modify-write with positional `evt_{len+1}` IDs, so a second writer (another process, or a stale in-memory `Session`) clobbered the first writer's event and both were assigned the same id — silent provenance loss, contradicting TRACE's core guarantee. It now reloads the authoritative on-disk events under a portable per-session lock before appending, and `_write_file` fsyncs before `os.replace`. No new dependency (cross-platform `O_CREAT|O_EXCL` lockfile; core stays mcp + pydantic).
+- **trace-learn recall accounting.** `recall_learnings` incremented `recall_count` / `last_surfaced` for *every* above-threshold match before the `[:limit]` slice, inflating recall counts and resetting decay clocks for learnings that were never surfaced. It now mutates only the surfaced top-`limit`.
+
+### Changed
+- **`trace_start_session` is now a cheap, quiet bootstrap.** `recall_learnings` defaults to **False** (was True); the response carries a bounded prior-session orientation plus a sequential-cadence note so the model need not fan out into `trace_list_sessions` / `trace_get_events` / `trace_health_check` at session start — the opening MCP fan-out that inflated a single interleaved-thinking turn. Removed the start-time double-recall.
+- **Hard payload caps on query tools** (context-bloat guard — caps clamp rather than honour an over-large request): `trace_search` was UNBOUNDED → default 25 / max 100 and now returns an object `{query, total_matched, returned, truncated, results}` (**breaking**: was a bare list); `trace_get_events` default 100 → 25 (max 200); `trace_health_check` / `trace_project_summary` read ≤ 500 session files (was 10000 / 1000) with a `scan_truncated` flag.
+- **Query/retrieval tools emit compact JSON** (no indent) — their output lands in the model context where indentation is ~20-30% token waste. `trace_export` keeps pretty (indented) JSON for the human/artifact path and gains a `pretty=False` toggle for compact artifacts.
+
+### Added
+- `JsonFileStorage.session_brief()` (bounded orientation), `JsonFileStorage.lock()`, `session_tools.format_bootstrap_message()`, `export_session(pretty=...)`.
+- PyPI metadata (`readme`, authors, keywords, classifiers, `[project.urls]`) — `twine check` now passes; `NOTICE`, `SECURITY.md`, `server.json` (MCP registry manifest).
+- `.github/workflows/release.yml` — tag-triggered build + leak guard + `twine check` + PyPI Trusted Publishing (OIDC).
+- Regression suites: `test_v042_cheap_bootstrap`, `test_v042_payload_caps`, `test_v042_storage_concurrency`, `test_v042_recall_count`; plus `docs/upstream-claude-code-thinking-block-400.md`.
+
+### Security / packaging
+- **Stopped the sdist/wheel from shipping private + cruft files.** The v0.4.1 sdist included `notes/` (confidential IP/legal material marked "do not share externally") and a ~4 MB crash-handoff tree; the wheel installed a macOS-duplicate `extension_status 2.py`. Deleted 7 duplicates, hardened `.gitignore` (default-deny `notes/`, `*-handoff-*/`, `* 2.*`), and added an explicit hatch sdist include-allowlist + global exclude. The release workflow's leak guard fails the build if any slip through.
+
+### Test infrastructure
+- pytest `pythonpath = ["src"]` so collection no longer depends on a fragile editable install (`uv run` re-syncs were dropping it and silently breaking `uv run pytest`); e2e server tests inject `src` on the subprocess `PYTHONPATH` and force offline BM25 so they no longer block on a model2vec cold-load. The model2vec-dependent matching test is `importorskip`-guarded.
+
+### Docs
+- Corrected stale counts: **22 tools (17 core + 5 trace-learn)** (was "23 / 18 core"), test count "322+" → "880+". Added the "≤1–2 trace calls per turn, never batch, don't fan out at session start" cadence guidance to the global protocol and the `trace-session` skill (maintained out-of-repo).
+
+### Migration notes
+- **`trace_search` response shape changed (breaking).** It now returns an object
+  `{query, total_matched, returned, truncated, results}` instead of a bare list.
+  Consumers that indexed the result directly should read the `results` array
+  (`resp["results"]`), and may check `truncated` / `total_matched` for capped queries.
+- **Versioning:** shipped as **0.4.2** under SemVer §4 (pre-1.0, `0.y.z`): the
+  LLM-facing breaking changes above (`trace_search` shape, `recall_learnings`
+  default) are permitted within this bump, and the on-disk wire format is
+  unchanged (still schema v0.4.1).
+
+### Deferred
+- The `.npy` embedding sidecar is redundant (embeddings already persist in the JSON store) but is an intentional, tested feature; removing it would break the embeddings tests, and the correct fix (exclude embeddings from JSON and load from the sidecar) is an architectural change with migration cost — deferred to a future release.
+
+## [0.4.1] — 2026-05-18
+
+> **Audit-driven release.** Targets the five quality issues surfaced by the 2026-05-13 waggle-session audit (`audit_2026-05-13_waggle_session/trace_audit_findings.md`). All changes are additive and backward-compatible with v0.3.x and v0.4.0 wire format. Three rounds of independent verification incorporated; remediation plan and HTML checklist live alongside the audit.
+
+### Added (schema — all optional, default-preserving)
+- `AnnotationData.category` accepts `"discovery"` — a non-trivial finding from autonomous or unattended work that carries causal load (distinct from `gotcha` and `correction`). SHOULD be logged at the moment of discovery, not in a post-hoc summary.
+- `ToolCallData.host: Literal["mcp","internal","external"] = "mcp"` — distinguishes external MCP servers from host-internal tools (subagent dispatchers) and external non-MCP tools.
+- `ToolCallData.parent_event_id: str | None = None` — links a dispatch to the controller event that motivated it. Enables manual dispatch-chain logging on day one.
+
+### Added (MCP wrapper)
+- `trace_log_tool_call` in `server.py` now exposes the `host` and `parent_event_id` parameters so the v0.4.1 schema fields are reachable through the public MCP interface (previously only the internal `logging_tools.log_tool_call` function accepted them — a release-gate verifier caught the gap). Defaults preserve v0.3.0 / v0.4.0 semantics (`host="mcp"`, `parent_event_id=None`). Six new E2E tests in `tests/test_v041_tool_call_wrapper.py` verify the wrapper passes both fields through, that invalid `host` values are rejected by Pydantic, and that dangling `parent_event_id` surfaces a referential-integrity warning.
+
+### Added (server-side audit)
+- `AttributionAudit` extended with five new counts: `missing_snippet_contribution_count`, `missing_snippet_correction_count`, `explicit_absence_snippet_count`, `orphan_discovery_hint_count`, `attribution_warning_count`. Surfaced in the session-end audit block in severity order.
+- Structural attribution-warning detector: counts decisions where `proposed_by == resolved_by` (same Actor instance) in multi-actor sessions — catches the question→AI-proposal→human-accept self-resolution pattern without regex.
+- Orphan-discovery hint: surfaces, as a low-severity hint (not a warning), contributions whose description contains discovery-language (`"discovered"`, `"found a bug"`, `"load-bearing fix"`) without a near-in-time discovery/correction/gotcha annotation.
+
+### Added (spec)
+- §3.4.1 — normative MUST clause on `conversation_snippet` for `contribution` and `correction`-category `annotation`; absence-marker convention (`<autonomous-stretch>`, `<no recent user message>`).
+- §3.5 — generalized Tool Invocation to cover external MCP, external non-MCP (HTTP/CLI), and host-internal tools; documented `host` field and `parent_event_id` for dispatch chains.
+- §3.6 — **Proposer Identity Rule** with disambiguation table: `proposed_by` MUST identify the actor who authored the proposal content, not who spoke the directive.
+- §3.7 — `discovery` annotation category.
+- §3.7.1 (new) — External References in `corrects_event_ids`: URI-form anchors (`external:<uri>`, `jsonl:<path>#L<line>`, etc.) when the corrected item is not a TRACE event.
+- §4.4 — split: `corrects_event_ids` MAY use URI-form per §3.7.1.
+- §5.2 — rewrite Correction Provenance for three anchor cases (event ID / URI / snippet-only).
+- §8.1 — real-time logging guidance + autonomous-window detection recommendation (host-implementation specific).
+- §8.2 — recognition table rows for question→AI-proposal pattern and discovery language.
+- Appendix A — worked example for question→AI-proposal→accept flow with `suggestion_type="requested"`.
+
+### Changed (PROV-LD export — **breaking for PROV consumers matching on `wasRevisionOf`**)
+- Correction events now emit either `prov:wasInvalidatedBy` (event-ID target) or qualified `prov:wasInfluencedBy` with `prov:atLocation` (URI target). Previously all corrections emitted `prov:wasRevisionOf`, which conflated repudiatory corrections with evolutionary revisions. Downstream SPARQL/jq queries matching `?correction prov:wasRevisionOf ?event` must be updated.
+- New: `parent_event_id` on `tool_call` emits `prov:wasInformedBy`.
+
+### Changed (validators and warnings)
+- `_check_referential_integrity` skips URI-form entries (scheme-prefixed strings) in `corrects_event_ids` — without this, the §3.7.1 URI scheme would hard-fail at `append_event`.
+- `FM1` (decision self-resolution) generalized: warns when `proposed_by == resolved_by` for any same-instance pair in a multi-actor session, not just `ai→ai`. Catches the systematic `human→human` attribution pattern surfaced by the audit.
+- `FM5` snippet warnings (contribution / correction) sharpened to mention the absence-marker convention.
+- `FM17` correction-without-anchor warning relaxed: fires only when both `corrects_event_ids` AND `conversation_snippet` are empty. New co-occurrence warning when `corrects_event_ids: []` but `related_event_ids` non-empty on a correction.
+- `FM3` (`related_decision_ids`) warning demoted: only fires when the session has at least one decision event.
+- `FM23` exploratory-tool warning made `host`-aware: only fires for typical MCP-side names on `host="mcp"`.
+
+### Changed (single source of truth)
+- `Environment.trace_version` removed. Single canonical version lives on `Session.trace_version`. Pre-0.4.1 sessions on disk silently drop the redundant field on next save (Pydantic v2 default `extra="ignore"` permits this).
+- `Session.trace_version` default bumped from `"0.3.0"` to `"0.4.1"`.
+- `schemas/trace-v0.3.json` renamed to `schemas/trace-v0.4.json` and regenerated to include v0.4.1 fields (`discovery` category, `host`, `parent_event_id`). The `$id` inside the schema is updated to `https://trace-protocol.org/schemas/trace-v0.4.json`. References updated in `scripts/generate_schema.py`, `scripts/validate_session.py`, `README.md`, `CONTRIBUTING.md`, `docs/specification.md`, and `tests/test_specification_conformance.py`. Per ADR 002 D6, the spec URL `https://trace-protocol.org/v0.3` in `Session.context` and the PROV namespace URI `https://trace-protocol.org/ns/v0.3#` in `prov_mapping.py` remain at v0.3 — additive extensions are valid within the same namespace.
+
+### Migration notes
+- **PROV-LD consumers** must update queries matching `prov:wasRevisionOf` for corrections — see "Changed (PROV-LD export)" above.
+- **Consumer projects with installed hooks** should re-run `trace-mcp-init` to refresh `decision-audit.sh`. The server-side FM1 generalization is otherwise invisible to consumers running the v0.4.0 hook.
+- **Pinned-version Pydantic consumers** parsing v0.4.1-written sessions through older schemas should set `model_config = ConfigDict(extra="ignore")` on their models to tolerate the new optional fields.
+
+## [0.4.0] — 2026-04-29
+
+### Added
+- Host adapter layer in `src/trace_mcp/adapters/` (`base/`, `claude_code/`, `codex/`).
+  Adapters are pure installers — they never import into the MCP server runtime.
+- `trace-mcp-init --client {claude-code,codex,none,auto}` and `--dry-run` flags.
+- Project-aware Claude Code hooks installed by the adapter:
+  - `SessionStart` reminder that only fires when an active session matches the
+    current project (CLAUDE.md `TRACE project name: "..."` marker → git basename
+    → cwd basename detection order).
+  - `UserPromptSubmit` nudge with per-project rate limiting
+    (`TRACE_PROMPT_MIN_TURNS`, `TRACE_PROMPT_COOLDOWN_SEC`, runtime state in
+    `~/.trace/runtime/<project>.state.json`).
+  - `PreToolUse` soft-mode guard for `Edit|Write` operations
+    (`TRACE_GUARD={off,soft,strict}`, default `soft`).
+  - `PostToolUse` decision-audit hook on `trace_end_session`.
+- `docs/adr/001-trace-auto-start.md` — first Architecture Decision Record,
+  archiving the auto-start failure analysis that motivated the adapter layer.
+- `docs/examples.md` consolidating worked decision/correction/contribution
+  examples (migrated out of the deleted `claude-code-skill.md`).
+
+### Changed
+- Renamed `trace_mcp.hooks` → `trace_mcp.extension_hooks` to free the "hooks"
+  namespace for the host-adapter layer. **Breaking** for any extension that
+  imports `trace_mcp.hooks` directly; internal callers updated.
+- `init_project.py` rewritten as a thin dispatcher that delegates host-specific
+  install logic to the adapter for the chosen `--client`.
+
+### Removed
+- `docs/claude-code-skill.md` (stale; superseded by the global `/trace-session`
+  Claude Code skill and the `docs/examples.md` consolidated examples).
+
+### Fixed
+- `trace-mcp-init` invoked via `uvx` no longer writes a per-machine uvx
+  cache path into `.mcp.json`. Resolution order is now: `TRACE_SOURCE_PATH`
+  env var → PyPI package name `trace-mcp` (for wheel installs) → repo root
+  (for editable installs).
+
+### Removed (repo split — 2026-04-29)
+- `manuscript/` (gitignored; ~1.7 GB of paper, lit-review, talks) moved to
+  the sibling repo `TRACE-research`. No git history was lost — `manuscript/`
+  was never tracked in TRACE.
+- 4 tracked literature-download scripts (`scripts/batch_proxy_download.py`,
+  `scripts/browser_batch.py`, `scripts/browser_download.py`,
+  `scripts/download_fulltext.py`) moved to `TRACE-research`. Their history
+  remains accessible in this repo's `git log` for archaeology.
+- 15 untracked talk-build / lit-audit / coder-comparison scripts moved.
+- Obsolete research-side `.gitignore` entries pruned (`manuscript/`,
+  `lit_review/`, talk-summary markdown files, manuscript-side scripts).
+- Result: TRACE is now ~7 MB instead of 1.7 GB; the public face of the
+  repo is the package and its tests/docs only. Provenance of the split is
+  recorded in `TRACE-research/PROVENANCE.md`.
+
+## [0.3.0] — 2026-04-15
+
+### Added
+- **Attribution audit** returned by `trace_end_session` for self-review.
+- **Scratchpad** auto-generation: session summary appended to
+  `.claude/SCRATCHPAD.md` for context restoration in the next session.
+- **`conversation_snippet`** field on contributions, annotations, and decisions
+  (~200-char user-message excerpt for provenance).
+- **Embedding backend** for knowledge recall (OpenAI + model2vec).
+- **Decision guards**: `trace_resolve_decision` raises `ValueError` on
+  invalid event IDs / dispositions to fail fast.
+- **Self-hosting via `uvx`**: `.mcp.json` and consumer-project init switched
+  to `uvx --from <path> --refresh-package trace-mcp trace-mcp` — no more
+  `.venv` dependency or `bin/trace-mcp-server` launcher.
+- "Why decision provenance?" and "Preliminary deployment results" sections
+  in README, including motivation and 10-project deployment metrics.
+- Tier 2 trace-learn features: decay/staleness, Jaccard content dedup,
+  recall tracking, knowledge metrics in `trace_project_summary`.
+
+### Changed
+- Test suite made generic — consumer-project paths now passed via
+  `TRACE_CONSUMER_PROJECTS` env var rather than hard-coded.
+
+### Removed
+- `trace-evolve` extension (replaced entirely by `trace-learn` as default).
+- Dead schema fields and the legacy `bin/trace-mcp-server` launcher.
+- `TRACE_PINNED_VERSION` env var (no longer needed under `uvx`).
+
+## [0.2.0] — 2026-02-16
+
+### Added
+- **Contributions** with direction (who had the idea) vs execution
+  (who did the work) attribution.
+- **Corrections** via `category="correction"` annotations linking to the
+  events being corrected (`corrects_event_ids`).
+- **Retry chains** via `retries_event_id` on tool calls.
+- **Suggestion types** on decisions: `proactive` / `requested` / `collaborative`.
+- **Human intervention metrics** in `trace_project_summary`.
+- **trace-learn extension**: cross-session knowledge persistence with
+  LLM-primary matching + extraction (BM25 fallback), 3-layer recall, and
+  five new MCP tools (`trace_learn_recall`, `trace_learn_add`,
+  `trace_learn_list`, `trace_learn_forget`, `trace_learn_extract`).
+- Search indexes `corrects_event_ids` and `conversation_snippet`.
+- TRACE protocol v0.2 with tiered priority, "no fabrication" absolute rule,
+  session-end checklist, and correction-vs-gotcha-vs-decision-rejection
+  guidance.
+
+## [0.1.0] — 2026-02-02
+
+### Added
+- Initial TRACE MCP server (FastMCP-based).
+- Pydantic v2 schemas for `Session`, `TraceEvent`, decisions, annotations,
+  tool calls, state changes.
+- JSON-file storage backend in `~/.trace/sessions/` with atomic writes.
+- Core MCP tools: session lifecycle, decision propose/resolve, annotation,
+  tool-call logging, session and event queries.
+- Knowledge persistence, behavioral checks, checkpoints.
+
+[Unreleased]: https://github.com/Thru-Echoes/TRACE/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Thru-Echoes/TRACE/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/Thru-Echoes/TRACE/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/Thru-Echoes/TRACE/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Thru-Echoes/TRACE/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Thru-Echoes/TRACE/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/Thru-Echoes/TRACE/releases/tag/v0.1.0

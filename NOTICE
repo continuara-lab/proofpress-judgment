@@ -16,5 +16,7 @@ Agent Decision Format is an earlier private working draft maintained by
 Continuara Labs. Its inspected revision was c042c4377da1c8907d71ca7be1a370f6b57eac85.
 AJF is a new local draft and does not grant or change rights in ADF or AFF.
 
-No upstream runtime is vendored. These are bounded reimplementations and a
-provenance mapper, not assertions of protocol ratification or endorsement.
+The playground vendors an attributed TRACE-derived capture source fork under
+examples/playground/vendor/provenance-core, preserving LICENSE, NOTICE and FORK.md.
+The core package remains a local lifecycle implementation and provenance mapper.
+No protocol ratification or endorsement is asserted.

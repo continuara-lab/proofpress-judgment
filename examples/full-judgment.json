@@ -22,7 +22,7 @@
   "provenance": {
     "origin": "human_guidance",
     "recorded_by": "agent:assistant",
-    "decision_maker": "human:demo-owner",
+    "judged_by": "human:demo-owner",
     "recorded_at": "2026-11-07T12:00:00Z",
     "capture_method": "explicit",
     "source_refs": [
@@ -36,7 +36,7 @@
       "summary": "Explicit synthetic owner instruction."
     }
   ],
-  "ajf_version": "0.1-draft",
+  "ajf_version": "0.2-draft",
   "id": "jgm_11111111111111111111111111111111",
   "version": 1,
   "links": []

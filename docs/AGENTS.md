@@ -5,10 +5,10 @@ store and installs a self-contained skill. It does not edit existing instruction
 files, host settings, hook configuration or home directories.
 
 ```sh
-judgment setup --all --owner human:me
+proofpress setup --all --owner human:me
 ```
 
-For selected agents, use `judgment setup --agents cursor codex --owner human:me`.
+For selected agents, use `proofpress setup --agents cursor codex --owner human:me`.
 For a preview, add `--dry-run`. For structured output, add `--format json`.
 For another project, add `--project /path/to/project`.
 The global `--workspace` option selects a store inside that project and goes before
@@ -23,7 +23,7 @@ These paths follow the linked host documentation, checked November 7, 2026.
 The installer is tested locally. This is **skill-directory compatibility**, not
 evidence of successful live sessions in all 12 hosts. No host receives hooks.
 
-Each path below contains `judgment-layer/SKILL.md` plus the same bundled workflow,
+Each path below contains `proofpress/SKILL.md` plus the same bundled workflow,
 coding example and AJF schema. Shared paths are written once.
 
 | Agent selector | Project skill directory | Host-specific requirement |
@@ -48,7 +48,7 @@ managed policies still apply; setup does not grant tool permissions.
 
 ## Talk to your agent
 
-Ask the agent to use judgment-layer when capturing a meaningful correction or
+Ask the agent to use Proofpress when capturing a meaningful correction or
 beginning related work. Skill activation is host-dependent and model-directed;
 installation alone does not intercept all steering or guarantee recall.
 
@@ -59,8 +59,8 @@ without passing them off as your expertise. They also need review.
 
 ## Install the runtime
 
-This is a Python package, not an npm package. `uv tool install` puts the `judgment`
-command in an isolated tool environment. If `judgment` is not found, run
+This is a Python package, not an npm package. `uv tool install` puts the `proofpress`
+command in an isolated tool environment. If `proofpress` is not found, run
 `uv tool update-shell`, then open a new terminal. A checkout can instead use the
 [development install](CLI.md#install-from-a-checkout).
 
@@ -76,7 +76,7 @@ its own workspace. A local installation does not sync judgments to cloud agents.
 
 ## Remove the integration
 
-`setup --dry-run` reports the skill directories. Remove only the `judgment-layer`
+`setup --dry-run` reports the skill directories. Remove only the `proofpress`
 directories you installed, preserving any edits you need. This stops future
 discovery after the agent reloads; it does not erase advice already in a running
 session. Keep or separately delete the `.judgment` store as you choose. Remove

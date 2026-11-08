@@ -35,7 +35,7 @@ if [[ $# -eq 0 ]]; then
     set -- --all --owner "human:$(id -un)"
   fi
 fi
-"$judgment_bin/judgment" setup "$@"
+"$judgment_bin/proofpress" setup "$@"
 case ":$PATH:" in
   *":$judgment_bin:"*) ;;
   *) printf '\nAdd the CLI to your shell PATH: export PATH="%s:$PATH"\n' "$judgment_bin" ;;

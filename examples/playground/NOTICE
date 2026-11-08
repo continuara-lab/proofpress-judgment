@@ -1,0 +1,14 @@
+Proofpress Playground
+
+The terminal palette follows Proofpress's original artifact provenance CLI:
+src/proofpress/legacy/portable.py, Apache-2.0.
+https://github.com/chenmingtang830/proofpress
+Inspected source revision: a8660cdc2826f21281c022f5975aaef4651d7b95
+Palette semantics: cyan for activity, green for added/admitted, red for removed
+or rejected, gold for conditions/reasons, grey for secondary information.
+Green admission indicates local reuse status, not factual verification.
+
+The checked-in provenance-core source fork derives from TRACE by Oliver
+Muellerklein (Apache-2.0). Original LICENSE/NOTICE are retained under
+vendor/provenance-core/. Base: d18a0bd1bf36eb625836fbbab78ae4bbd78c0db9.
+See vendor/provenance-core/FORK.md for modifications and compatibility limits.

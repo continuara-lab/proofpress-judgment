@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Agent Judgment Format 0.1-draft",
+  "title": "Agent Judgment Format 0.2-draft (reads 0.1-draft)",
   "type": "object",
   "additionalProperties": false,
   "required": ["ajf_version", "id", "version", "name", "description", "judgment", "applicability", "provenance", "evidence", "links"],
   "properties": {
-    "ajf_version": {"const": "0.1-draft"},
+    "ajf_version": {"enum": ["0.1-draft", "0.2-draft"]},
     "id": {"type": "string", "pattern": "^jgm_[a-f0-9]{32}$"},
     "version": {"type": "integer", "minimum": 1},
     "name": {"$ref": "#/$defs/text"},
@@ -16,6 +16,8 @@
       "properties": {
         "statement": {"$ref": "#/$defs/text"},
         "kind": {"enum": ["conditional_guidance", "case", "hypothesis", "constraint"]},
+        "assertion": {"type":"object", "additionalProperties":false, "required":["key","value"],
+          "properties":{"key":{"$ref":"#/$defs/text"},"value":{"type":["string","number","boolean","null"]}}},
         "rationale": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]}
       }
     },
@@ -42,6 +44,7 @@
       "required": ["origin", "recorded_by", "recorded_at", "capture_method", "source_refs"],
       "properties": {
         "origin": {"enum": ["human_guidance", "human_judgment", "agent_judgment", "agent_assumption", "unknown"]},
+        "judged_by": {"$ref": "#/$defs/text"},
         "decision_maker": {"$ref": "#/$defs/text"},
         "recorded_by": {"$ref": "#/$defs/text"},
         "recorded_at": {"type": "string", "format": "date-time"},
@@ -70,5 +73,10 @@
     }},
     "extensions": {"type": "object"}
   },
+  "allOf": [{
+    "if": {"properties": {"ajf_version": {"const": "0.2-draft"}}},
+    "then": {"properties": {"provenance": {"not": {"required": ["decision_maker"]}}}},
+    "else": {"properties": {"provenance": {"not": {"required": ["judged_by"]}}}}
+  }],
   "$defs": {"text": {"type": "string", "minLength": 1, "pattern": "\\S"}}
 }

@@ -16,7 +16,7 @@ def main():
         workspace = Path(temp) / "store"
 
         def cli(*args, expected=0):
-            result = subprocess.run([sys.executable, "-m", "judgment_layer.cli", "--workspace", str(workspace), *args],
+            result = subprocess.run([sys.executable, "-m", "judgment_layer.cli", "--workspace", str(workspace), *args, "--json"],
                                     capture_output=True, text=True)
             if result.returncode != expected:
                 raise RuntimeError(f"CLI {args[0]} failed: {result.stderr} {result.stdout}")

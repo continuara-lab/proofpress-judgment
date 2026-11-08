@@ -1,4 +1,4 @@
-# Install Judgment Layer
+# Install Proofpress
 
 The runtime is Python. uv installs it in an isolated environment; the shell
 installer handles those steps for you. No npm package is required.
@@ -28,7 +28,7 @@ Or, with uv already installed:
 
 ```sh
 uv tool install --upgrade --python 3.11 git+https://github.com/continuara-lab/judgment-layer.git
-judgment setup --all --owner human:me
+proofpress setup --all --owner human:me
 ```
 
 ## Curl distribution

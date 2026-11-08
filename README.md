@@ -1,4 +1,4 @@
-# Judgment Layer
+# Proofpress
 
 **Your team's judgment. Built into your agents.**
 
@@ -22,7 +22,7 @@ for 12 agents. **Private alpha:** GitHub repository access is required.
 
 Restart your agent, then ask:
 
-> Use judgment-layer. Capture my meaningful corrections for review, and use
+> Use Proofpress. Capture my meaningful corrections for review, and use
 > approved judgments before related work.
 
 ## Teach it once. Reuse it when it applies.
@@ -44,11 +44,25 @@ well-maintained memory notes still need to be measured.
 
 Local CLI, AJF records, manual review, conditional retrieval and stale-version
 checks. Skill entry points cover 12 agents; live sessions aren't verified in all
-of them. **No action hooks yet.** [The hook plan](docs/HOOKS.md) explains how
-specific constraints could block tool actions.
+of them. **Runtime prototype:** Codex apply_patch interception passed eleven real
+scenarios with explicit bindings and optional TypeSafe decision model checks.
+Claude Code also passed a real blocked-write check after login renewal. Host installation
+and its trust workflow remain separate. [Runtime guide](docs/RUNTIME.md) · [Host research](docs/HOST-HOOKS.md).
 
 [CLI guide](docs/CLI.md) · [AJF format](docs/AJF.md) ·
 [Architecture](docs/ARCHITECTURE.md) · [Evaluation plan](evals/README.md) ·
 [Security](SECURITY.md)
 
 Early prototype · Manual admission · Apache-2.0
+
+CLI output is concise by default, including in pipes. `--format agent` returns
+small JSON for reuse; `--json` returns the full data. `show ID` expands a judgment.
+Terminal output uses bold brand colors in every theme. `NO_COLOR=1` disables styling.
+
+The package and source folder retain their existing names during development.
+`judgment` remains a compatibility command; the product command is `proofpress`.
+Use this checkout’s virtual environment to avoid replacing a different installed
+Proofpress CLI. Existing skill directories are not automatically migrated.
+
+Try the [hands-on playground](examples/playground/README.md) for capture/reuse,
+coding hooks and configurable model assessment. [Verified results](docs/PLAYGROUND.md).

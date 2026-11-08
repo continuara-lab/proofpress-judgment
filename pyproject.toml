@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "judgment-layer"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "Local, manual-first governance for human and agent judgments"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ license = "Apache-2.0"
 dependencies = ["jsonschema>=4.23,<5"]
 
 [project.scripts]
+proofpress = "judgment_layer.cli:main"
 judgment = "judgment_layer.cli:main"
 
 [tool.setuptools.packages.find]

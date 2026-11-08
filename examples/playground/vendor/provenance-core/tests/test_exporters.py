@@ -1,0 +1,484 @@
+"""Tests for TRACE export formatters."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+
+import pytest
+
+from trace_mcp.exporters import export_markdown, export_prov_jsonld
+from trace_mcp.schema import (
+    Actor,
+    AnnotationData,
+    ContributionData,
+    DecisionData,
+    Environment,
+    Session,
+    SessionMetadata,
+    StateChangeData,
+    ToolCallData,
+    TraceEvent,
+)
+
+
+@pytest.fixture
+def sample_session() -> Session:
+    """Create a session with all four event types for export testing."""
+    session = Session(
+        id="trace_20260205_abc123",
+        metadata=SessionMetadata(
+            project="Climate discourse analysis",
+            experiment_id="exp-017",
+            participants=[
+                Actor(type="human", id="researcher-jane", role="lead"),
+                Actor(type="ai", id="claude-sonnet-4", role="assistant"),
+            ],
+            environment=Environment(
+                mcp_servers=["corpus-search-mcp"],
+                client="claude-code",
+                os="Darwin",
+            ),
+            tags=["ipcc", "adaptation"],
+        ),
+        summary="Analyzed adaptation language shifts",
+        events=[
+            # Tool call
+            TraceEvent(
+                id="evt_001",
+                session_id="trace_20260205_abc123",
+                type="tool_call",
+                actor=Actor(type="ai", id="claude-sonnet-4"),
+                tool_call=ToolCallData(
+                    server="corpus-search-mcp",
+                    name="search_passages",
+                    input={"query": "adaptation"},
+                    output={"passages_found": 47},
+                    duration_ms=3200,
+                    status="success",
+                ),
+            ),
+            # Decision: accepted
+            TraceEvent(
+                id="evt_002",
+                session_id="trace_20260205_abc123",
+                type="decision",
+                actor=Actor(type="ai", id="claude-sonnet-4"),
+                decision=DecisionData(
+                    description="Use cosine similarity threshold of 0.85",
+                    rationale="F1=0.78 on validation set",
+                    proposed_by=Actor(type="ai", id="claude-sonnet-4"),
+                    disposition="accepted",
+                    resolved_by=Actor(type="human", id="researcher-jane"),
+                ),
+            ),
+            # Decision: revised (with link to evt_002 for chain test)
+            TraceEvent(
+                id="evt_003",
+                session_id="trace_20260205_abc123",
+                type="decision",
+                actor=Actor(type="ai", id="claude-sonnet-4"),
+                decision=DecisionData(
+                    description="Lower threshold to 0.80",
+                    rationale="Higher recall for exploratory analysis",
+                    proposed_by=Actor(type="human", id="researcher-jane"),
+                    disposition="revised",
+                    resolved_by=Actor(type="human", id="researcher-jane"),
+                    revision_note="Want higher recall, will manually review extras",
+                    revises_event_id="evt_002",
+                ),
+            ),
+            # Annotation: gotcha
+            TraceEvent(
+                id="evt_004",
+                session_id="trace_20260205_abc123",
+                type="annotation",
+                actor=Actor(type="ai", id="claude-sonnet-4"),
+                annotation=AnnotationData(
+                    category="gotcha",
+                    content="Unicode encoding issues in IPCC PDFs",
+                    related_event_ids=["evt_001"],
+                    tags=["preprocessing"],
+                ),
+            ),
+            # Contribution
+            TraceEvent(
+                id="evt_005",
+                session_id="trace_20260205_abc123",
+                type="contribution",
+                actor=Actor(type="ai", id="claude-sonnet-4"),
+                contribution=ContributionData(
+                    description="Implemented cosine similarity function",
+                    artifact="src/similarity.py",
+                    direction="human",
+                    execution="ai",
+                    related_decision_ids=["evt_002"],
+                    tags=["implementation"],
+                ),
+            ),
+            # State change
+            TraceEvent(
+                id="evt_006",
+                session_id="trace_20260205_abc123",
+                type="state_change",
+                actor=Actor(type="human", id="researcher-jane"),
+                state_change=StateChangeData(
+                    description="Switched embedding model",
+                    field="environment.embedding_model",
+                    old_value="MiniLM",
+                    new_value="BGE-large",
+                    reason="Domain sense conflation",
+                ),
+            ),
+        ],
+    )
+    return session
+
+
+# ── Markdown Export ──────────────────────────────────────────────────────────
+
+
+class TestMarkdownExport:
+    def test_contains_header(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "# TRACE Session: trace_20260205_abc123" in md
+
+    def test_contains_project(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "Climate discourse analysis" in md
+
+    def test_contains_decision_log(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "## Decision Log" in md
+
+    def test_contains_tool_calls(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "## Tool Calls" in md
+        assert "search_passages" in md
+
+    def test_contains_annotations(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "## Annotations" in md
+        assert "Unicode encoding" in md
+
+    def test_contains_statistics(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "## Statistics" in md
+        assert "Total events" in md
+
+    def test_accepted_emoji(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "\u2705" in md  # check mark for accepted
+
+    def test_revised_emoji(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "\u270f\ufe0f" in md  # pencil for revised
+
+    def test_gotcha_emoji(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "\U0001f525" in md  # fire for gotcha
+
+    def test_contains_contributions(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "## Contributions" in md
+        assert "cosine similarity" in md
+        assert "src/similarity.py" in md
+        assert "human" in md  # direction
+
+    def test_summary_section(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "## Summary" in md
+        assert "Analyzed adaptation language shifts" in md
+
+
+# ── PROV JSON-LD Export ──────────────────────────────────────────────────────
+
+
+def _nodes(raw: str) -> dict[str, dict]:
+    """Index the conformant JSON-LD @graph by @id."""
+    doc = json.loads(raw)
+    return {n["@id"]: n for n in doc["@graph"]}
+
+
+def _types(node: dict) -> set[str]:
+    t = node.get("@type")
+    return set(t) if isinstance(t, list) else {t} if t else set()
+
+
+class TestProvJsonLdExport:
+    def test_has_context(self, sample_session: Session) -> None:
+        raw = export_prov_jsonld(sample_session)
+        doc = json.loads(raw)
+        ctx = doc["@context"]
+        assert "prov" in ctx
+        assert "trace" in ctx
+
+    def test_has_agents(self, sample_session: Session) -> None:
+        nodes = _nodes(export_prov_jsonld(sample_session))
+        agents = [n for n in nodes.values() if "prov:Agent" in _types(n)]
+        assert agents
+        assert any("researcher-jane" in n["@id"] for n in agents)
+
+    def test_has_activities(self, sample_session: Session) -> None:
+        nodes = _nodes(export_prov_jsonld(sample_session))
+        assert any("prov:Activity" in _types(n) for n in nodes.values())
+
+    def test_decision_revision_link(self, sample_session: Session) -> None:
+        nodes = _nodes(export_prov_jsonld(sample_session))
+        # evt_003 revises evt_002 → some node carries prov:wasRevisionOf
+        assert any("prov:wasRevisionOf" in n for n in nodes.values())
+
+    def test_contribution_activity(self, sample_session: Session) -> None:
+        nodes = _nodes(export_prov_jsonld(sample_session))
+        # evt_005 is a contribution
+        activity = nodes["trace:evt_005"]
+        assert "prov:Activity" in _types(activity)
+        assert activity["trace:kind"] == "Contribution"
+        assert activity["trace:direction"] == "human"
+        assert activity["trace:execution"] == "ai"
+
+    def test_valid_json(self, sample_session: Session) -> None:
+        raw = export_prov_jsonld(sample_session)
+        doc = json.loads(raw)
+        assert isinstance(doc, dict)
+
+
+# ── Export edge cases (Phase 5c) ─────────────────────────────────────────
+
+
+class TestEmptySessionExport:
+    def _empty_session(self) -> Session:
+        return Session(
+            id="trace_empty_001",
+            metadata=SessionMetadata(project="empty-test"),
+            events=[],
+        )
+
+    def test_empty_session_markdown_valid(self) -> None:
+        """Empty session produces valid markdown with header."""
+        md = export_markdown(self._empty_session())
+        assert "# TRACE Session: trace_empty_001" in md
+        assert "Total events" in md
+
+    def test_empty_session_prov_jsonld_valid(self) -> None:
+        """Empty session produces valid conformant JSON-LD."""
+        raw = export_prov_jsonld(self._empty_session())
+        doc = json.loads(raw)
+        assert "@context" in doc
+        assert "@graph" in doc and isinstance(doc["@graph"], list)
+
+
+class TestMarkdownEdgeCases:
+    def test_pipe_in_annotation_no_break(self, sample_session: Session) -> None:
+        """A | character in annotation content shouldn't break table layout."""
+        # Add an annotation with pipe characters
+        sample_session.events.append(
+            TraceEvent(
+                id="evt_pipe",
+                session_id=sample_session.id,
+                type="annotation",
+                actor=Actor(type="ai", id="claude"),
+                annotation=AnnotationData(
+                    category="observation",
+                    content="Value is A | B | C in the data",
+                ),
+            )
+        )
+        md = export_markdown(sample_session)
+        # Should still contain the annotation section without crashing
+        assert "Annotations" in md
+        assert "A | B | C" in md
+
+    def test_decision_warnings_in_markdown(self) -> None:
+        """Decision warnings should render as guard rail bullets."""
+        session = Session(
+            id="trace_warnings_001",
+            metadata=SessionMetadata(project="warnings-test"),
+            events=[
+                TraceEvent(
+                    id="evt_001",
+                    session_id="trace_warnings_001",
+                    type="decision",
+                    actor=Actor(type="ai", id="claude"),
+                    decision=DecisionData(
+                        description="Use threshold 0.9",
+                        proposed_by=Actor(type="ai", id="claude"),
+                        warnings=["Previously rejected at 0.9", "Consider recall impact"],
+                    ),
+                ),
+            ],
+        )
+        md = export_markdown(session)
+        assert "**Guard rail**: Previously rejected at 0.9" in md
+        assert "**Guard rail**: Consider recall impact" in md
+
+    def test_decision_warnings_in_prov(self) -> None:
+        """Decision warnings should appear as trace:warnings in PROV."""
+        session = Session(
+            id="trace_warnings_002",
+            metadata=SessionMetadata(project="warnings-test"),
+            events=[
+                TraceEvent(
+                    id="evt_001",
+                    session_id="trace_warnings_002",
+                    type="decision",
+                    actor=Actor(type="ai", id="claude"),
+                    decision=DecisionData(
+                        description="Use threshold 0.9",
+                        proposed_by=Actor(type="ai", id="claude"),
+                        warnings=["Watch out for false positives"],
+                    ),
+                ),
+            ],
+        )
+        nodes = _nodes(export_prov_jsonld(session))
+        activity = nodes["trace:evt_001"]
+        # Non-scalar property values are JSON-stringified to remain valid
+        # JSON-LD literals; round-trips back to the original list.
+        assert json.loads(activity["trace:warnings"]) == ["Watch out for false positives"]
+
+    def test_very_long_description_markdown(self) -> None:
+        """A 10K character description doesn't crash markdown export."""
+        long_desc = "x" * 10_000
+        session = Session(
+            id="trace_long_001",
+            metadata=SessionMetadata(project="long-test"),
+            events=[
+                TraceEvent(
+                    id="evt_001",
+                    session_id="trace_long_001",
+                    type="contribution",
+                    actor=Actor(type="ai", id="claude"),
+                    contribution=ContributionData(
+                        description=long_desc,
+                        direction="ai",
+                        execution="ai",
+                    ),
+                ),
+            ],
+        )
+        md = export_markdown(session)
+        assert "Contributions" in md
+        assert long_desc in md
+
+
+# ── DecisionConfidence rendering (v0.5.1) ───────────────────────────────────
+
+
+def _evidence_id(activity_id: str, role: str, locator: str, sha256: str) -> str:
+    """Mirror of the exporter's evidence-entity id: activity id plus a content hash of the reference."""
+    key = json.dumps({"locator": locator, "role": role, "sha256": sha256}, sort_keys=True, separators=(",", ":"))
+    return f"{activity_id}_evidence_{hashlib.sha256(key.encode()).hexdigest()[:32]}"
+
+
+@pytest.fixture
+def confident_session(sample_session: Session) -> Session:
+    from trace_mcp.schema import DecisionConfidence
+
+    session = sample_session.model_copy(deep=True)
+    decision = next(e for e in session.events if e.type == "decision")
+    assert decision.decision is not None
+    decision.decision = decision.decision.model_copy(
+        update={
+            "confidence": DecisionConfidence.model_validate(
+                {
+                    "interval": {"lower": -30.0, "upper": 583.75, "level": 0.9},
+                    "method": {
+                        "name": "percentile_bootstrap",
+                        "algorithm": "rsi-exam-gate/percentile-bootstrap/1",
+                        "resamples": 5000,
+                        "seed": 20260902,
+                    },
+                    "sample_size": 8,
+                    "contract": "rsi-exam-decision-log/v1",
+                    "statistic": "mean_paired_delta",
+                    "unit": "game_score",
+                    "direction": "higher",
+                    "estimate": 260.0,
+                    "evidence": [
+                        {"role": "candidate", "locator": "results/v3/visible_result.json", "sha256": "b" * 64}
+                    ],
+                    "evidence_digests": {"candidate": "sha256:" + "b" * 64},
+                    "min_effect": 0.0,
+                    "verdict": "inconclusive",
+                    "holdout": None,
+                }
+            )
+        }
+    )
+    return session
+
+
+class TestConfidenceRendering:
+    def test_markdown_renders_the_measurement(self, confident_session: Session) -> None:
+        md = export_markdown(confident_session)
+        assert (
+            "- **Measured effect**: mean_paired_delta = +260.0 game_score "
+            "(positive favours the candidate; raw metric: higher is better); "
+            "90% nominal interval [-30.0, +583.75]; n=8"
+        ) in md
+        assert (
+            "- **Method**: percentile_bootstrap (rsi-exam-gate/percentile-bootstrap/1), resamples=5000, seed=20260902"
+        ) in md
+        assert (
+            f"- **Evidence** (recorded by the producer, not verified by TRACE): "
+            f"results/v3/visible_result.json (candidate, sha256 {'b' * 64})"
+        ) in md
+        assert (
+            "- **Contract**: rsi-exam-decision-log/v1; preserved keys not read by TRACE: holdout, min_effect, verdict"
+        ) in md
+
+    def test_prov_carries_the_measurement_and_evidence(self, confident_session: Session) -> None:
+        doc = json.loads(export_prov_jsonld(confident_session))
+        graph = doc["@graph"]
+        a = next(n for n in graph if n.get("trace:kind") == "Decision" and "trace:confidenceEstimate" in n)
+        assert (a["trace:confidenceLow"], a["trace:confidenceHigh"], a["trace:confidenceLevel"]) == (
+            -30.0,
+            583.75,
+            0.9,
+        )
+        assert a["trace:confidenceDirection"] == "higher" and a["trace:confidenceSampleSize"] == 8
+        assert a["trace:confidenceMethod"] == "percentile_bootstrap"
+        assert a["trace:confidenceContract"] == "rsi-exam-decision-log/v1"
+        assert not any(k.startswith("trace:confidenceVerdict") or k.startswith("trace:confidenceMinEffect") for k in a)
+        ev_id = _evidence_id(a["@id"], "candidate", "results/v3/visible_result.json", "b" * 64)
+        ent = next(n for n in graph if n["@id"] == ev_id)
+        assert ent["trace:kind"] == "Evidence" and ent["prov:atLocation"] == "results/v3/visible_result.json"
+        assert ent["trace:role"] == "candidate" and ent["trace:sha256"] == "b" * 64
+        assert {u["@id"] for u in a["prov:used"]} == {ev_id}
+
+    def test_prov_evidence_identity_is_content_derived(self, confident_session: Session) -> None:
+        """Two references to the same bytes under the same role at different locators stay two entities,
+        and reordering the evidence list leaves every entity id unchanged."""
+        from trace_mcp.schema import DecisionConfidence
+
+        session = confident_session.model_copy(deep=True)
+        decision = next(e for e in session.events if e.type == "decision")
+        assert decision.decision is not None and decision.decision.confidence is not None
+        block = decision.decision.confidence.model_dump()
+        block["evidence"] = [
+            {"role": "candidate", "locator": "results/v3/visible_result.json", "sha256": "b" * 64},
+            {"role": "candidate", "locator": "results/v3/copy_of_visible_result.json", "sha256": "b" * 64},
+        ]
+        block["evidence_digests"] = None
+        decision.decision = decision.decision.model_copy(
+            update={"confidence": DecisionConfidence.model_validate(block)}
+        )
+        ids_a = {
+            n["@id"] for n in json.loads(export_prov_jsonld(session))["@graph"] if n.get("trace:kind") == "Evidence"
+        }
+        assert len(ids_a) == 2
+        block["evidence"].reverse()
+        decision.decision = decision.decision.model_copy(
+            update={"confidence": DecisionConfidence.model_validate(block)}
+        )
+        ids_b = {
+            n["@id"] for n in json.loads(export_prov_jsonld(session))["@graph"] if n.get("trace:kind") == "Evidence"
+        }
+        assert ids_a == ids_b
+
+    def test_decisions_without_confidence_render_unchanged(self, sample_session: Session) -> None:
+        md = export_markdown(sample_session)
+        assert "**Measured effect**" not in md and "**Evidence**" not in md
+        doc = json.loads(export_prov_jsonld(sample_session))
+        assert not any("trace:confidenceEstimate" in n or n.get("trace:kind") == "Evidence" for n in doc["@graph"])

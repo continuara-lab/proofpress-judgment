@@ -35,7 +35,7 @@ def from_trace(session, event_id, template, recorder):
                           "rationale": decision.get("rationale") or None}
     result["provenance"] = {
         "origin": "human_judgment" if proposer["type"] == "human" else "agent_judgment",
-        "decision_maker": proposer["id"], "recorded_by": recorder, "recorded_at": now(),
+        "judged_by": proposer["id"], "recorded_by": recorder, "recorded_at": now(),
         "capture_method": "imported",
         "source_refs": ["trace://" + quote(session["id"], safe="") + "/event/" + quote(event_id, safe="")]
     }

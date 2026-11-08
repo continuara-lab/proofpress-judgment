@@ -1,0 +1,14 @@
+.venv/
+sandbox/
+.checks/
+__pycache__/
+.upstream/
+*.egg-info/
+
+.env
+.env.*
+!.env.example
+
+hook-sandbox/
+
+decision-sandbox/

@@ -187,7 +187,7 @@ def hook(workspace, event, managed=False):
                 result={'ok':True,'reason':'Enforcement paused by owner' if paused(store) else 'No protected actions configured'}
             else:
                 result=gate(store,event)
-            store.append('runtime_checked','system:pre-tool-hook',data={'result':result,'event_digest':digest(event), 'tool_name':event.get('tool_name') if isinstance(event,dict) else None, 'session_id':event.get('session_id') if isinstance(event,dict) else None})
+            store.append('runtime_checked','system:pre-tool-hook',data={'result':result,'event_digest':digest(event), 'tool_name':event.get('tool_name') if isinstance(event,dict) else None, 'session_id':event.get('session_id') if isinstance(event,dict) else None, 'host':event.get('host') if isinstance(event,dict) else None})
     except Exception:
         result={'ok':False,'reason':'Proofpress unavailable or invalid event; action paused'}
     finally:

@@ -46,7 +46,7 @@ Choose an agent below, then start a fresh session in this project.
 | --- | --- | --- |
 | **Codex** | Enabled by the installer | `proofpress hooks install --host codex --confirm`, then review `/hooks` in Codex |
 | **Claude Code** | `proofpress onboard --agents claude-code` | `proofpress hooks install --host claude-code --confirm`, then review hooks in Claude Code |
-| **Cursor** | `proofpress onboard --agents cursor` | Guidance and retrieval; no Cursor hook installer is provided |
+| **Cursor** | `proofpress onboard --agents cursor` | `proofpress hooks install --host cursor --confirm`; [Cursor coverage](docs/CURSOR.md) |
 
 Confirm onboarding in your terminal. Guidance helps agents propose and retrieve
 judgments; hooks check supported actions before execution.

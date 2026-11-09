@@ -22,19 +22,22 @@ def atomic_json(path, value):
 
 def registration(project, workspace, host, env_file=None):
     root = Path(project).resolve()
-    if host not in {'codex', 'claude-code'}: raise JudgmentError('Hook installation supports codex and claude-code')
-    path = root / ('.codex/hooks.json' if host == 'codex' else '.claude/settings.local.json')
+    if host not in {'codex', 'claude-code', 'cursor'}: raise JudgmentError('Hook installation supports codex, claude-code and cursor')
+    path = root / {'codex':'.codex/hooks.json','claude-code':'.claude/settings.local.json','cursor':'.cursor/hooks.json'}[host]
     check_path(path, root)
     command = [sys.executable, '-m', 'judgment_layer.cli']
     if env_file:
         env_file = str(Path(env_file).resolve())
         if not Path(env_file).is_file(): raise JudgmentError('Environment file does not exist')
         command += ['--env-file', env_file]
-    command += ['--workspace', str(Path(workspace).resolve()), 'managed-hook']
+    command += ['--workspace', str(Path(workspace).resolve()), 'cursor-hook' if host=='cursor' else 'managed-hook']
     # A missing Python/package must emit a host denial rather than a shell error.
     denial = json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'Proofpress could not start; run proofpress doctor'}})
+    if host=='cursor':
+        from .cursor import deny
+        denial=json.dumps(deny('Proofpress could not start; run proofpress doctor'))
     shell = shlex.join(command) + ' || printf ' + shlex.quote('%s\n') + ' ' + shlex.quote(denial)
-    entry = {'matcher': '.*', 'hooks': [{'type': 'command', 'command': shell, 'timeout': 60}]}
+    entry = {'command':shell,'timeout':60,'failClosed':True} if host=='cursor' else {'matcher': '.*', 'hooks': [{'type': 'command', 'command': shell, 'timeout': 60}]}
     return path, entry
 
 
@@ -42,19 +45,23 @@ def install(store, project, host, confirmed=False, env_file=None):
     path, entry = registration(project, store.root, host, env_file)
     value = json.loads(path.read_text()) if path.exists() else {}
     if not isinstance(value, dict) or not isinstance(value.get('hooks', {}), dict): raise JudgmentError('Unsupported host settings; no changes made')
-    entries = value.setdefault('hooks', {}).setdefault('PreToolUse', [])
+    if host=='cursor':
+        if value.get('version',1)!=1:raise JudgmentError('Unsupported Cursor hooks version')
+        value.setdefault('version',1)
+    event='preToolUse' if host=='cursor' else 'PreToolUse'
+    entries = value.setdefault('hooks', {}).setdefault(event, [])
     if not isinstance(entries, list): raise JudgmentError('PreToolUse must be an array')
     manifest = store.root / ('host-' + host + '.json')
     previous = json.loads(manifest.read_text()) if manifest.exists() else None
     if previous and previous['path'] != str(path): raise JudgmentError('Host already registered for another project in this store')
     result = {'host_setup': True, 'host': host, 'path': str(path), 'confirmed': confirmed,
-              'trust': 'Restart Codex and review /hooks; project and exact hook must be trusted.' if host == 'codex' else 'Restart Claude Code and review project trust and hooks.',
-              'command': entry['hooks'][0]['command']}
+              'trust': 'Restart Cursor and inspect project hooks in Cursor settings.' if host=='cursor' else 'Restart Codex and review /hooks; project and exact hook must be trusted.' if host == 'codex' else 'Restart Claude Code and review project trust and hooks.',
+              'command': entry['command'] if host=='cursor' else entry['hooks'][0]['command']}
     if not confirmed: return result
     if previous and previous['entry'] in entries: entries.remove(previous['entry'])
     if entry not in entries: entries.append(entry)
     atomic_json(path, value)
-    atomic_json(manifest, {'path': str(path), 'entry': entry})
+    atomic_json(manifest, {'path': str(path), 'entry': entry, 'event':event})
     store.append('host_installed', store.config['owner'], data={'host': host, 'path': str(path), 'entry_digest': digest(entry)})
     return result
 
@@ -65,7 +72,7 @@ def remove(store, host, confirmed=False):
     previous = json.loads(manifest.read_text()); path = Path(previous['path'])
     check_path(path, path.parent.parent)
     value = json.loads(path.read_text()) if path.exists() else {}
-    entries = value.get('hooks', {}).get('PreToolUse', [])
+    entries = value.get('hooks', {}).get(previous.get('event','PreToolUse'), [])
     if previous['entry'] not in entries: raise JudgmentError('Hook changed or is missing; inspect host settings manually')
     if confirmed:
         entries.remove(previous['entry'])
@@ -90,11 +97,11 @@ def paused(store):
 
 def doctor(store, project):
     root = Path(project).resolve(); checks = []
-    for host in ('codex', 'claude-code'):
+    for host in ('codex', 'claude-code', 'cursor'):
         manifest = store.root / ('host-' + host + '.json')
         if not manifest.exists(): continue
         m = json.loads(manifest.read_text()); path = Path(m['path'])
-        try: present = m['entry'] in json.loads(path.read_text()).get('hooks', {}).get('PreToolUse', [])
+        try: present = m['entry'] in json.loads(path.read_text()).get('hooks', {}).get(m.get('event','PreToolUse'), [])
         except (OSError, ValueError, AttributeError): present = False
         checks.append({'host': host, 'configured': present, 'path': str(path), 'trust': 'Check in host; Proofpress does not grant or infer trust.'})
     rules = []
@@ -122,7 +129,7 @@ def uninstall(store, project, confirmed=False):
             if hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
                 preserved.append(name); continue
             removed.append(name)
-    hosts=[h for h in ('codex','claude-code') if (store.root/('host-'+h+'.json')).exists()]
+    hosts=[h for h in ('codex','claude-code','cursor') if (store.root/('host-'+h+'.json')).exists()]
     for host in hosts:
         m=json.loads((store.root/('host-'+host+'.json')).read_text())
         if not Path(m['path']).is_relative_to(root): raise JudgmentError('Hook belongs to another project')

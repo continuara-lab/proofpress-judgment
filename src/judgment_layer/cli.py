@@ -68,7 +68,7 @@ def parser():
     s.add_argument('--confirm', action='store_true')
     s = sub.add_parser('hooks', help='Install or remove a project-local host hook')
     s.add_argument('action', choices=['install', 'remove'])
-    s.add_argument('--host', choices=['codex', 'claude-code'], default='codex')
+    s.add_argument('--host', choices=['codex', 'claude-code', 'cursor'], default='codex')
     s.add_argument('--project', default='.')
     s.add_argument('--confirm', action='store_true')
     for name in ('pause', 'resume'):
@@ -116,6 +116,7 @@ def parser():
     s.add_argument("--confirm", action="store_true")
     s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
     sub.add_parser('managed-hook', help=argparse.SUPPRESS)
+    sub.add_parser('cursor-hook', help=argparse.SUPPRESS)
     s = sub.add_parser("onboard", help="Preview or enable project-local capture policy and agent skills")
     s.add_argument('--upgrade', action='store_true', help='Back up and replace the installed Proofpress skill files')
     s.add_argument("--project", default=".")
@@ -213,12 +214,15 @@ def run(args):
         record = validate(load(args.file))
         return {"ok": True, "id": record["id"], "version": record["version"],
                 "boundary": "Shape and bounded consistency only; no admission or factual verification."}
-    if args.command in {"hook", "managed-hook"}:
+    if args.command in {"hook", "managed-hook", "cursor-hook"}:
         from .runtime import hook
         try:
             event = load("-")
         except (ValueError, OSError):
             event = None
+        if args.command=='cursor-hook':
+            from .cursor import handle
+            return handle(args.workspace,event)
         return hook(args.workspace, event, managed=args.command=='managed-hook')
     store = Store(args.workspace)
     try:
@@ -403,7 +407,7 @@ def main(argv=None):
             else:
                 print("No change.")
                 return 0
-        if args.command in {"hook", "managed-hook"}:
+        if args.command in {"hook", "managed-hook", "cursor-hook"}:
             print(json.dumps(result, separators=(",", ":")))
             return 0
         if args.json:
@@ -438,6 +442,10 @@ def main(argv=None):
             print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
         return 3 if args.command in {"check", "assess"} and not result["ok"] else 0
     except (JudgmentError, OSError, ValueError, sqlite3.Error, KeyError, TypeError, EOFError, KeyboardInterrupt) as exc:
+        if args.command=='cursor-hook':
+            from .cursor import deny
+            print(json.dumps(deny('Proofpress failed; action paused')))
+            return 0
         if args.command in {"hook", "managed-hook"}:
             print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Proofpress failed; action paused"}}))
             return 0

@@ -191,7 +191,8 @@ def run(args):
                 selected['triggers']=[] if args.triggers==['none'] else args.triggers
             if args.history is not None:selected['history']=args.history
             if args.extraction is not None:selected['extraction']=args.extraction
-        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup)
+        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup,
+                       getattr(args, 'review_selection', None), getattr(args, 'expected_review_policy', None))
     if args.command == "history" and args.action == "scan":
         from .history import scan
         return scan(args.root,args.project,args.days,args.previews,agent=args.agent)
@@ -437,6 +438,8 @@ def main(argv=None):
             print("  [1] Review them yourself; ask Jev when needed")
             print("  [2] Also ask Jev after each capture or revision")
             print("      Sends each candidate and review criteria to TypeSafe; requires your key.")
+            if result['review_policy']['evidence'] == 'referenced_history':
+                print("      Also sends matching referenced excerpts from imported history.")
             review_choice = input("Your choice [1]: ").strip()
             if review_choice not in {"", "1", "2"}:
                 print("No project changes.")
@@ -449,15 +452,9 @@ def main(argv=None):
             if args.owner is None:
                 path = Path(result["workspace"])
                 args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+            args.expected_review_policy = result["review_policy"]
+            args.review_selection = {"mode": "on_capture" if review_choice == "2" else "manual"}
             result = run(args)
-            if review_choice == "2":
-                from .review_policy import update_review_policy
-                store = Store(result["workspace"])
-                try:
-                    with store.transaction():
-                        result["review_policy"] = update_review_policy(store, {"mode": "on_capture"}, True)
-                finally:
-                    store.close()
             if customize_with_agent:
                 result["next"] = ["Start a new agent session in this project and say: Help me customize my Proofpress capture and review policies."]
         if args.command in {"hook", "managed-hook", "cursor-hook"}:

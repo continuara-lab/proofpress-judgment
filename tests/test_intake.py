@@ -45,15 +45,89 @@ class IntakeTests(unittest.TestCase):
 
     def test_natural_language_guidance_is_previewed_before_human_confirmation(self):
         from judgment_layer.cli import parser, run
+        from judgment_layer.presentation import render_text
         proposed = copy.deepcopy(policy(self.s))
         proposed["guidance"] = ["Capture design tradeoffs; skip routine formatting."]
+        proposed["extraction"] = "assisted"
+        proposed["max_excerpt_chars"] = 1500
         source = self.root / "policy.json"
         source.write_text(json.dumps(proposed))
         args = ["--workspace", str(self.s.root), "capture-policy", "--from", str(source)]
-        self.assertTrue(run(parser().parse_args(args))["preview"])
+        preview = run(parser().parse_args(args))
+        self.assertTrue(preview["preview"])
+        displayed = render_text("capture-policy", preview)
+        self.assertIn("assisted", displayed)
+        self.assertIn("1500 characters", displayed)
+        self.assertIn(proposed["guidance"][0], displayed)
         self.assertNotIn("guidance", self.op(lambda: policy(self.s)))
         run(parser().parse_args(args + ["--confirm"]))
         self.assertEqual(self.op(lambda: policy(self.s))["guidance"], proposed["guidance"])
+
+    def test_onboarding_switches_existing_automatic_review_to_manual(self):
+        from judgment_layer.cli import main, parser, run
+        from judgment_layer.review_policy import review_policy, update_review_policy
+        project = self.root / "project"
+        project.mkdir()
+        workspace = project / ".judgment"
+        initialize(workspace, "human:synthetic")
+        store = Store(workspace)
+        try:
+            with store.transaction():
+                update_review_policy(store, {"mode": "on_capture"}, True)
+            with patch("sys.stdin.isatty", return_value=True), patch("sys.stdout.isatty", return_value=True), \
+                 patch("builtins.input", side_effect=["d", ""]), patch("builtins.print"):
+                self.assertEqual(main(["--workspace", str(workspace), "onboard", "--project", str(project)]), 0)
+            with store.transaction():
+                self.assertEqual(review_policy(store)["mode"], "manual")
+            source = project / "candidate.json"
+            source.write_text(json.dumps(self.doc))
+            with patch("judgment_layer.assessment.assess") as model:
+                item = run(parser().parse_args(["--workspace", str(workspace), "capture", "--from", str(source)]))
+            model.assert_not_called()
+            self.assertEqual(item["state"], "proposed")
+        finally:
+            store.close()
+
+    def test_onboarding_discloses_referenced_history_before_auto_confirmation(self):
+        from judgment_layer.cli import main
+        from judgment_layer.review_policy import review_policy, update_review_policy
+        project = self.root / "project"
+        project.mkdir()
+        workspace = project / ".judgment"
+        initialize(workspace, "human:synthetic")
+        store = Store(workspace)
+        try:
+            with store.transaction():
+                update_review_policy(store, {"evidence": "referenced_history"}, True)
+            with patch("sys.stdin.isatty", return_value=True), patch("sys.stdout.isatty", return_value=True), \
+                 patch("builtins.input", side_effect=["d", "2", "y"]), patch("builtins.print") as printed:
+                self.assertEqual(main(["--workspace", str(workspace), "onboard", "--project", str(project)]), 0)
+            lines = [str(call.args[0]) for call in printed.call_args_list if call.args]
+            self.assertTrue(any("matching referenced excerpts from imported history" in line for line in lines))
+            with store.transaction():
+                self.assertEqual(review_policy(store)["mode"], "on_capture")
+                self.assertEqual(review_policy(store)["evidence"], "referenced_history")
+        finally:
+            store.close()
+
+    def test_onboarding_does_not_apply_an_unseen_review_policy(self):
+        from judgment_layer.review_policy import review_policy, update_review_policy
+        project = self.root / "project"
+        project.mkdir()
+        workspace = project / ".judgment"
+        initialize(workspace, "human:synthetic")
+        store = Store(workspace)
+        try:
+            with store.transaction():
+                displayed_policy = review_policy(store)
+                update_review_policy(store, {"evidence": "referenced_history"}, True)
+            with self.assertRaises(JudgmentError):
+                onboard(project, ".judgment", ["codex"], None, True,
+                        review_selection={"mode": "on_capture"}, expected_review_policy=displayed_policy)
+            with store.transaction():
+                self.assertEqual(review_policy(store)["mode"], "manual")
+        finally:
+            store.close()
     def test_onboarding_preview_and_manual_policy(self):
         project=self.root/'project';project.mkdir()
         result=onboard(project,'.judgment',['codex'],None,False)

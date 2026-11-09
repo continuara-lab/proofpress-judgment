@@ -38,10 +38,11 @@ def validate_capture_policy(value):
     return value
 
 
-def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False, startup=False):
+def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False, startup=False,
+            review_selection=None, expected_review_policy=None):
     root=Path(project).resolve();path=Path(workspace)
     path=path if path.is_absolute() else root/path
-    from .review_policy import DEFAULT_REVIEW_POLICY, review_policy
+    from .review_policy import DEFAULT_REVIEW_POLICY, review_policy, update_review_policy
     base=dict(DEFAULT_POLICY)
     advice = dict(DEFAULT_REVIEW_POLICY)
     if path.exists():
@@ -52,6 +53,8 @@ def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrad
                 advice = review_policy(existing)
         finally:existing.close()
     value={**base,**(selection or {})}
+    if expected_review_policy is not None and advice != expected_review_policy:
+        raise JudgmentError('Review policy changed during setup; rerun onboarding')
     if startup and confirmed and owner is None and not path.exists():
         owner = "human:" + getpass.getuser()
     result=setup(root,workspace,agents,owner,dry_run=not confirmed,upgrade=upgrade,startup=startup)
@@ -59,8 +62,14 @@ def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrad
         s=Store(path)
         try:
             with s.transaction():
+                if expected_review_policy is not None and review_policy(s) != expected_review_policy:
+                    raise JudgmentError('Review policy changed during setup; rerun onboarding')
                 if selection is not None or not any(e['kind']=='capture_policy_set' for e in s.events()):set_policy(s,value,True)
                 value=policy(s)
+                if review_selection is not None:
+                    advice=update_review_policy(s, review_selection, True)
+                else:
+                    advice=review_policy(s)
         finally:s.close()
     return {**result,'capture_policy':value,'review_policy':advice,'status':'enabled' if confirmed else 'preview',
             'boundary':'Project skill and capture guidance only. No background listener, scheduler, automatic admission, or host hook is installed.'}

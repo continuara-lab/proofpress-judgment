@@ -190,9 +190,12 @@ def render_text(command, result):
         p=result['capture_policy']
         labels={'human_judgment':'your judgments','human_correction':'your corrections','agent_judgment':'agent judgments','task_end':'task-end lessons'}
         lines = [color('accent','Capture policy')+'  What your agent may propose for review.',
+                 color('accent','Version')+'  '+str(p['version']),
                  color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),
                  color('accent','Review')+'   You approve before reuse.',
-                 color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off')]
+                 color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),
+                 color('accent','Extraction')+'  '+p['extraction'],
+                 color('accent','Excerpt limit')+'  '+str(p['max_excerpt_chars'])+' characters']
         lines += [color('accent','Guidance')+'  '+item for item in p.get('guidance',[])]
         lines.append(color('accent','Change')+'   proofpress configure')
         if result.get('preview'):

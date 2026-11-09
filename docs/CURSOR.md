@@ -1,4 +1,4 @@
-# Cursor hooks
+# Cursor integration
 
 Cursor provides native hooks. Proofpress's adapter translates `preToolUse` events
 into the same local judgment checks used by the Codex and Claude Code adapters.
@@ -69,6 +69,6 @@ The official CLI command is `agent`; this runner defaults to
 `~/.local/bin/cursor-agent` so it does not accidentally invoke a different vendor's
 `agent` command. Use `--binary PATH` when your installation differs.
 
-[Cursor hook reference](https://cursor.com/docs/hooks) ·
+[Import Cursor sessions](INTAKE.md) · [Cursor hook reference](https://cursor.com/docs/hooks) ·
 [CLI installation](https://cursor.com/docs/cli/installation) ·
 [Headless writes](https://cursor.com/docs/cli/headless)

@@ -1,10 +1,8 @@
 # Session intake and contextual judgment design
 
-Status: product design plus initial implementation. November 8, 2026.
-[Current intake commands](INTAKE.md) implement session-local onboarding, capture
-policy, contextual AJF 0.3, observations and explicitly selected Codex import/
-extraction. Continuous capture listeners, nightly scheduling and automatic approval
-remain design work.
+Design notes from November 8, 2026. The current CLI supports project-local
+onboarding, capture settings, contextual AJF 0.3, observations, and local import
+from Codex, Claude Code and Cursor. [Current intake commands](INTAKE.md)
 
 ## Paxel reference
 
@@ -55,11 +53,10 @@ Policy separates what to capture, when to extract, what requires review, and wha
 can execute. A capture failure should not break ordinary agent work. Failure of a
 registered protective gate follows its separately reviewed blocking policy.
 
-## History first adapter
+## Local transcript reader design
 
-Start with Codex history, matching the host used in the playground; reuse the
-normalization contract for Claude and Cursor readers later. Do not infer remote
-support from local storage discovery.
+Codex was the first reader. Claude Code and Cursor now use the same local intake
+and review flow. [Supported transcript formats](INTAKE.md)
 
 1. Discover metadata in the selected host's transcript root and preview sources.
 2. Filter by explicit project/worktree selection and time range. Distinguish exact

@@ -25,7 +25,7 @@ the project after setup. [First session](AGENT-SETUP.md)
 
 The installer enables manual review and uses `human:<OS username>` as a local
 owner label. This is not authenticated identity. It does not install action hooks
-or import history. [Hook setup](RUNTIME.md)
+or import history. [Hook setup](RUNTIME.md) · [Import sessions](INTAKE.md)
 
 ## Choose another agent
 

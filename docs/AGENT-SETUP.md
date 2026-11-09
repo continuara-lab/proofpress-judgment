@@ -58,5 +58,8 @@ permission to send the selected material to a model.
 - **Model assessment:** Optional configured providers assess nuanced conflicts or output;
   the current decision-model provider is TypeSafe. They do not approve candidates.
 
+- **Session history:** Import local Codex, Claude Code or Cursor sessions by project.
+  Model extraction is a separate opt-in step. [Import guide](INTAKE.md)
+
 Use `proofpress doctor` to distinguish configured integration from an observed
 runtime check. [Local walkthrough](LOCAL-ALPHA.md)

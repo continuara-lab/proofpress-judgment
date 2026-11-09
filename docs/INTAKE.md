@@ -1,130 +1,96 @@
-# Project history and capture settings
+# Import sessions and configure capture
 
-Onboarding explains capture policy as “what your agent may save as a proposed
-judgment,” lists the enabled categories and links to `proofpress configure`.
-The defaults cover your judgments, corrections, consequential agent choices and
-task-end lessons. Capture is skill guidance, not a background listener.
+## Import a project
 
-Import by project:
+From your project, run the command for the agent whose sessions you want.
 
 ```sh
-proofpress history project --project /path/to/project --days 7
+proofpress history project --project . --agent codex
+proofpress history project --project . --agent claude-code
+proofpress history project --project . --agent cursor
+```
+
+The CLI previews the project and session count for the last seven days. Change
+the window with `--days`. Confirm to store excerpts locally. In scripts, use
+`--confirm` to authorize import after reviewing the preview. The global
+`--workspace` option selects the destination store if it differs from the
+source project.
+
+| Agent | Local source | How the project is selected |
+| --- | --- | --- |
+| Codex | `~/.codex/sessions` or `$CODEX_HOME/sessions` | Exact working directory from session metadata |
+| Claude Code | `~/.claude/projects` or `$CLAUDE_CONFIG_DIR/projects` | Exact working directory from the main transcript |
+| Cursor | `~/.cursor/projects/<workspace>/agent-transcripts` | Cursor's workspace folder, shown before confirmation |
+
+Cursor JSONL usually lacks a working directory in each record. Confirm the shown
+folder belongs to your project. If discovery misses a transcript, select the
+local JSONL file yourself. Cursor must have saved a local transcript.
+[Cursor transcript settings and hook fields](https://cursor.com/docs/hooks)
+
+### Import a single session
+
+```sh
+proofpress history scan --project . --agent claude-code --previews
+proofpress history preview --project . --agent claude-code --session KEY
+proofpress history import --project . --agent claude-code --session KEY
+```
+
+Use `--file /absolute/session.jsonl` in place of `--session KEY` to choose a file
+directly. For Cursor, only choose files you know belong to the specified project.
+Use `--root` to override the history root for discovery. The time window uses
+file modification time. Scan examines at most 5,000 candidate files.
+
+Import reads user and assistant text from supported local JSONL, skipping tool
+calls, tool results and non-text blocks. Files may be up to 32 MiB. Excerpts,
+roles, timestamps when available and byte-range references stay in the local
+store. Known credential formats are redacted on a best-effort basis. Review
+which transcripts you selected before authorizing extraction.
+
+Project import processes available batches. Single-session import reads up to
+the configured character budget per invocation, 24,000 by default. Repeated
+imports resume from the checkpoint, skip consumed ranges and deduplicate source
+references. Partial lines stay pending. Changed prefixes and conflicting
+mirrors pause the affected import. A Codex or Claude Code project switch also
+pauses the affected import.
+
+## Extract candidate judgments
+
+```sh
+proofpress consolidate --scope coding
 proofpress consolidate --scope coding --model-assessment --all
 proofpress review
 ```
 
-Import asks before storing redacted excerpts locally; errors are displayed with
-source keys and reasons. Extraction explicitly sends excerpts to Codex and follows
-allowed capture triggers. Each candidate records its trigger and policy digest;
-it remains a hypothesis requiring human scope and source review. `--all` processes
-the current pending snapshot. Omit it to process a single batch. No scheduler or
-automatic approval is installed. Redaction is not complete privacy protection.
+The first command previews pending batches. `--model-assessment` sends excerpts
+through the Codex CLI and requires a working Codex login, regardless of which
+agent recorded the session. It follows the capture policy and validates the
+model's output shape and source references. It creates proposed hypotheses.
+Review their evidence, rationale, scope and conditions before admitting them.
 
-The per-session commands below remain advanced tools. [Local trial](LOCAL-ALPHA.md).
+By default one batch is processed. `--all` processes the current pending queue
+and stops on error. Reruns skip completed batches. Exact duplicate statements in
+the same scope are skipped. Onboarding installs no background job.
+[Review-assisted checks](#assist-review)
 
-# Onboarding, session intake and observations
+## Configure capture
 
-This iteration implements the first local intake path. It uses existing manual
-admission and runtime authority; history never imports an approval.
+Run `proofpress onboard --startup --agents codex` to preview setup. Use
+`claude-code` or `cursor` for the other hosts. Setup installs local guidance and
+the defaults tell the agent when to propose your judgments, corrections, its own
+consequential choices and useful lessons at the end of a task. Capture is agent
+guidance. History import is a separate opt-in action.
 
-## Enable from an agent session
-
-```sh
-proofpress onboard --project . --agents codex
-```
-
-In an interactive terminal, this previews the project, capture choices and manual
-review, then asks whether to enable. Noninteractive agent calls return a preview
-without modifying files. A human can explicitly confirm the same configuration:
-
-```sh
-proofpress onboard --project . --agents codex --owner human:me --confirm
-proofpress capture-policy
-```
-
-Onboarding installs project-local skill entry points and records default capture
-policy: human judgments, human corrections, consequential agent judgments and task boundaries;
-manual extraction; selected history only; manual review. These are instructions
-for participating agents, not a new background observer or automatic host hook.
-No OS scheduler is installed. Existing different skill files are preserved rather
-than silently overwritten; an upgrade may require inspecting/moving those files.
-
-`capture-policy --from policy.json --confirm` records a human policy change as a
-ledger event. `review: manual` remains required. History can be disabled with `none`.
-Policy options can be changed directly in the session CLI without editing JSON:
+Run `proofpress configure` to change what the agent may propose. For scripts,
+the human can set policy with explicit confirmation.
 
 ```sh
 proofpress capture-policy --triggers human_correction task_end --confirm
 proofpress capture-policy --triggers none --history none --confirm
 ```
 
-Onboarding accepts the same trigger/history/extraction options. Trigger guidance
-can be disabled; explicit capture commands are still available. The policy never enables automatic admission or modifies runtime bindings.
-
-## Select Codex history
-
-```sh
-proofpress history scan --project . --root ~/.codex/sessions --days 7
-proofpress history preview --project . --file /absolute/selected-session.jsonl
-proofpress history import --project . --file /absolute/selected-session.jsonl
-```
-
-Scan reads metadata and filters exact project path plus file modification time.
-It is capped at 5,000 candidate files. Preview performs no import or network call.
-Import accepts regular JSONL files up to 32 MiB; it reads only supported user and
-assistant response messages, not tool outputs, hidden reasoning or attachments.
-`event_msg` mirrors are skipped to avoid double-counting.
-
-Imported excerpts are stored locally in the gitignored journal, with source roles,
-timestamps and byte-range references. Known credential formats are redacted;
-this is not a guarantee that arbitrary private information is removed. Inspect
-selected data before authorizing extraction. Source paths remain local metadata.
-
-Each import processes at most the configured excerpt budget (default 24,000 text
-characters), leaving the rest for a subsequent import. Partial final records are
-left pending. Re-import skips consumed ranges and duplicate source references.
-Truncated/changed prefixes, conflicting mirrors, project switches and malformed
-complete records pause import without advancing its checkpoint. This initial
-reader does not automatically repair rotated or rewritten sessions.
-
-## Consolidate selected evidence
-
-```sh
-proofpress consolidate --scope coding/my-sdk
-proofpress consolidate --scope coding/my-sdk --model-assessment
-```
-
-Without the flag this previews the queue. With it, selected redacted excerpts are
-sent through the existing Codex CLI login to extract candidate judgments. This
-is distinct from the TypeSafe assessment adapter. The extractor's local tool
-calls are denied, web search is disabled, output shape and source references are
-checked, and every result remains a proposed hypothesis. Extraction does not
-create arbitrary scope: you supply it and should narrow it during review.
-
-One batch is processed per invocation, and a committed batch is not reprocessed.
-Exact duplicate statements within a scope are skipped; semantic consolidation or
-automatic generalization across many sessions is not implemented. Review the
-source, rationale and conditions before admission. A failed extraction leaves the
-batch pending. In the CLI, model extraction runs outside the database write lock;
-the batch is checked again when committing.
-
-This is the first reusable background-work entry point. A future scheduler can
-invoke it, but no nightly job is installed by onboarding. A hook can signal task
-completion; the worker does extraction. Neither should automatically admit rules.
-
-## Contextual AJF 0.3
-
-New captures default to 0.3-draft; explicit 0.1/0.2 records remain readable and
-immutable. New content fields are restricted to the new draft:
-
-- `context`: situation, optional goal, constraints and scalar background facts.
-- `alternatives`: options and recorded reasons not chosen; unknown reasons are null.
-- `expected_outcome`: intended effect and optional verification approach.
-- `judgment.polarity`: `prefer` or `avoid` for negative lessons.
-
-Context describes the original situation. It does not replace executable
-applicability. The compact agent projection preserves these fields when present.
-See [contextual example](../examples/contextual-judgment.json).
+`proofpress capture-policy` prints the active settings. Manual review stays
+required. Changing capture policy does not change runtime bindings.
+[Agent setup](AGENT-SETUP.md) · [AJF fields](AJF.md)
 
 ## Append outcomes
 

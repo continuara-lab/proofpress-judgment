@@ -12,7 +12,7 @@ judgments you can review, reuse and update.
 
 **The open-source judgment layer for agents.**
 [Website](https://proofpress.dev) · [Quick start](#quick-start) ·
-[Agent instructions](docs/AGENT-SETUP.md) · [Documentation](#documentation)
+[Import past sessions](#import-past-sessions) · [Enforcement](#enforce-judgments) · [Docs](#documentation)
 
 ## What is a judgment?
 
@@ -66,82 +66,78 @@ Choose a candidate from the numbered inbox. Read it, edit it if needed, then app
 or reject it. **You approve before reuse.** Capture is agent guidance, not an
 automatic listener for every message.
 
-## Architecture
+## How it works
 
-```mermaid
-flowchart LR
-    A[Agent session] -->|Proposes choices with reasons and sources| S[Local judgment store]
-    H[Human review] -->|Approves, revises or withdraws| S
-    S -->|Supplies approved versions that match task facts| A
-    A -->|Requests a covered action| K[Optional host hook]
-    S -->|Supplies the bound judgment and version| K
-    K -->|Passed checks| T[Host tool]
-```
+![Proofpress flow from an agent session to a draft judgment, human review and reuse in a later session, with an optional hook for covered tool actions.](assets/judgment-flow.svg)
 
-Proofpress stores AJF records, review decisions and reuse receipts in the project's
-SQLite database. Agents consult it through the CLI. The human owns admission and
-chooses which actions need an enforcement hook. [Records](docs/AJF.md) · [Runtime](docs/RUNTIME.md)
+An agent proposes a judgment from work in a session. You review it once. Later
+sessions can look up the current approved version when the scope and conditions
+match. You can record outcomes and revise or withdraw guidance as conditions change.
+[Architecture and storage](docs/ARCHITECTURE.md)
 
-## The everyday loop
+## Agent Judgment Format (AJF)
 
-| Step | What you do |
-| --- | --- |
-| **Capture & review** | Keep a useful judgment, check its basis and choose where it applies. |
-| **Reuse** | Supply approved, current judgments to later tasks whose conditions match. |
-| **Learn** | Attach outcome observations to the exact version for later inspection. |
-| **Update** | Revise or withdraw guidance as evidence and conditions change. |
+AJF is the portable JSON format for a judgment. It captures **what you chose,
+why, when it applies, and where it came from**. Proofpress keeps approvals and
+hook bindings separately in the project's local store, tied to the exact version.
 
-```sh
-proofpress configure     # Choose what the agent may propose
-proofpress edit ID       # Edit in your preferred editor; creates a new candidate
-proofpress withdraw ID   # Stop an admitted judgment from being reused
-proofpress doctor        # Inspect skills, hooks and active bindings
-```
+[Format guide](docs/AJF.md) · [JSON schema](src/judgment_layer/ajf.schema.json) ·
+[Example record](examples/contextual-judgment.json)
 
-Sources, versions and review history stay inspectable. An edit needs fresh review.
-Reuse currently matches explicit scopes and factual conditions.
-[Full walkthrough](docs/LOCAL-ALPHA.md)
+## Import past sessions
 
-<details>
-<summary><strong>Import a project's past Codex sessions</strong></summary>
+Run the command for the agent whose local history you want to import. Each
+command previews the last seven days and asks before saving excerpts locally.
+
+**Codex**
 
 ```sh
-proofpress history project --project /path/to/project --days 7
+proofpress history project --project . --agent codex
+```
+
+**Claude Code**
+
+```sh
+proofpress history project --project . --agent claude-code
+```
+
+**Cursor**
+
+```sh
+proofpress history project --project . --agent cursor
+```
+
+To turn the imported excerpts into candidates, use the separate extraction step.
+
+```sh
 proofpress consolidate --scope coding --model-assessment --all
 proofpress review
 ```
 
-Import asks before storing redacted excerpts locally. Extraction sends those
-excerpts to Codex and follows your capture settings. It produces candidates for
-review. Redaction may miss sensitive details. [History guide](docs/INTAKE.md)
+Extraction sends excerpts to Codex, including when the source is Claude Code or
+Cursor. Redaction is best effort. [Supported transcripts and import guide](docs/INTAKE.md)
 
-</details>
+## Enforce judgments
 
-<details>
-<summary><strong>Enforce a judgment with a hook</strong></summary>
-
-Choose **Enforcement** during review to inspect and approve the proposed protection
-together with the judgment. Select your host when installing the hook.
+Use hooks when a judgment should pause a covered tool action. In
+`proofpress review`, choose **Enforcement** and review the paths and check
+alongside the judgment. One approval binds both to the exact revision.
 
 ```sh
 proofpress hooks install --host codex             # Preview
 proofpress hooks install --host codex --confirm   # Install
 ```
 
-Use `--host claude-code` or `--host cursor` for those agents. Follow the host’s
-trust and hook review flow after restarting it. Supported checks
-cover protected paths, lifecycle/conditions and optional decision model assessment.
-Shell, MCP and unsupported routes pause while bindings are active. These are
-cooperative local hooks; host trust and tool coverage matter.
-[Enforcement and recovery](docs/RUNTIME.md)
-
-</details>
+For Claude Code or Cursor, replace `codex` with `claude-code` or `cursor`.
+Restart the agent and complete its project and hook trust flow. Run
+`proofpress doctor` to inspect configuration and the last observed check.
+[Tool coverage and recovery](docs/RUNTIME.md)
 
 ## Documentation
 
 [Installation](docs/INSTALL.md) · [Agent setup](docs/AGENT-SETUP.md) ·
-[CLI reference](docs/CLI.md) · [AJF records](docs/AJF.md) ·
-[Evaluation](evals/README.md) · [Contributing](CONTRIBUTING.md) ·
+[CLI reference](docs/CLI.md) · [Architecture](docs/ARCHITECTURE.md) · [AJF](docs/AJF.md) ·
+[Local walkthrough](docs/LOCAL-ALPHA.md) · [Evaluation](evals/README.md) · [Contributing](CONTRIBUTING.md) ·
 [Security](SECURITY.md) · [License](LICENSE)
 
 For agents: read the installed `proofpress` skill for this project's workspace

@@ -27,6 +27,9 @@ The installer enables manual review and uses `human:<OS username>` as a local
 owner label. This is not authenticated identity. It does not install action hooks
 or import history. [Hook setup](RUNTIME.md) · [Import sessions](INTAKE.md)
 
+For optional Jev checks, [add a dedicated TypeSafe config](RUNTIME.md#set-up-jev)
+inside your project after onboarding.
+
 ## Choose another agent
 
 Select the host as part of the installation. For Claude Code, run:

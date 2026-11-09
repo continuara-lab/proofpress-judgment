@@ -48,29 +48,56 @@ whether managed hooks check actions. Use `proofpress hooks remove --host HOST
 --confirm` to remove only the managed registration. With no bindings, the
 managed hook leaves normal host permissions in effect.
 
-## Assess a nuanced judgment
+## Set up Jev
 
-Copy `.env.example` to your private `.env`, add your TypeSafe API key, and select
-a model available to your account. The example model is configurable, not a
-promise of model availability. Explicit loading avoids silently sending data.
+After onboarding, create `.judgment/jev.env` in your project with the settings
+below. The installer sets up the project but keeps provider configuration
+opt-in. The workspace's generated `.gitignore` keeps this file out of Git.
 
-```sh
-proofpress --env-file .env capture --from candidate.json --decision-model
-proofpress --env-file .env assess JUDGMENT_ID
+```dotenv
+PROOFPRESS_DECISION_MODEL_PROVIDER=typesafe
+PROOFPRESS_DECISION_MODEL=jev-1.13.0
+TYPESAFE_API_KEY=
 ```
 
-This sends the candidate and overlapping admitted judgments to TypeSafe. Only
-those selected records are sent; source sessions and keys are not logged. Provider
-errors, missing configuration, malformed answers or uncertain results become
-`unknown`. Conservative prototype cutoffs are probability >= .95 and confidence
->= .90; these thresholds are not empirically validated risk calibration.
+Fill in your TypeSafe key and choose a model available to your account.
+Use a dedicated env file because the CLI accepts only decision-model settings.
+[Environment template](../.env.example)
+
+### Check a proposed judgment
+
+```sh
+proofpress inbox
+proofpress --env-file .judgment/jev.env assess JUDGMENT_ID
+```
+
+Use the candidate ID from the inbox. This sends the proposed judgment and
+overlapping admitted judgments to TypeSafe to look for conflicts. To request
+the same check at capture time, use `capture --from candidate.json --decision-model`
+with the same global `--env-file` option. Uncertain results and provider errors
+are recorded as `unknown`. Review the candidate and result in the CLI.
+
+### Check a covered write
+
+During review, choose **Enforcement** and select the decision-model check for
+the paths you want to protect. Approve the binding, then install or refresh
+your host hook with the same env file. For example, with Codex:
+
+```sh
+proofpress --env-file .judgment/jev.env hooks install --host codex --confirm
+```
+
+Restart the host and inspect the updated hook in its trust flow. A covered
+new-file write sends the full proposed content and the exact bound judgment
+to TypeSafe. Partial edits, violations, uncertain results and provider
+failures pause this check. Use this option for content you can send to the
+provider.
 
 [TypeSafe Choice API](https://docs.typesafe.ai/primitives/choice) defines the
-request and answer format. The first provider is TypeSafe; no generic
-OpenAI-compatible endpoint support is claimed. Unit tests use synthetic provider replies. Real keyed TypeSafe requests using
-`jev-1.13.0` also passed in the November 8 Codex verification: a violating output
-was denied and a compliant output was released. This is integration evidence,
-not a quality or calibration benchmark.
+request and answer format. Prototype cutoffs are probability ≥ 0.95 and
+confidence ≥ 0.90. The [live Codex receipt](verification/live-codex-hooks-2026-11-08.json)
+records one blocked violating output and one released compliant output with
+`jev-1.13.0`.
 
 ## Flag conflict before reuse
 

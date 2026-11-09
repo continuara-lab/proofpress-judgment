@@ -1,6 +1,6 @@
 # How Proofpress works
 
-![Flow from agent session to draft AJF record, human review, later reuse and optional enforcement.](../assets/judgment-flow.svg)
+![Flow from agent session to draft AJF record, human review, later reuse and optional enforcement with local checks or Jev.](../assets/judgment-flow.svg)
 
 1. **Agent session.** Your project guidance tells the agent when to propose useful
    judgments. You can also import selected local transcripts from Codex, Claude
@@ -42,6 +42,19 @@ binding and returns pass or pause. Stale, withdrawn and superseded bindings
 pause until a human resolves them. Host trust, tool coverage and check timing
 define the limits of local enforcement.
 [Runtime details](RUNTIME.md) · [Security boundaries](../SECURITY.md)
+
+## Optional decision model
+
+Proofpress checks structured assertions, scope, conditions and versions locally.
+Jev, called through TypeSafe, adds two explicitly enabled checks:
+
+| Entry point | What Jev receives | What Proofpress does with the result |
+| --- | --- | --- |
+| Candidate assessment | The proposed judgment and overlapping approved judgments | Flags a potential conflict or uncertainty for review |
+| Bound output check | The approved judgment and complete proposed new-file content | Pauses a covered write on a violation, uncertainty or provider failure |
+
+Human review controls admission and binding. A model pass on a write leaves the
+host's own permissions in effect. [Set up Jev](RUNTIME.md#set-up-jev)
 
 ## Install and integrate
 

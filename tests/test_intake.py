@@ -322,3 +322,24 @@ class IntakeTests(unittest.TestCase):
             result = review_assist(self.s, item["id"])
             self.assertEqual(result["assessment"]["finding"], "scope_too_broad")
             self.assertEqual(model.call_args.args[0]["source_excerpts"], [messages[0]])
+
+    def test_dependency_admission_and_revocation_invalidate_advice(self):
+        from judgment_layer.review_policy import admission_issues, current_advice
+
+        dependency = self.op(lambda: self.s.capture(self.doc))
+        candidate = copy.deepcopy(self.doc)
+        candidate["links"] = [{
+            "relation": "depends_on", "id": dependency["id"],
+            "version": dependency["version"], "digest": dependency["digest"],
+        }]
+        item = self.op(lambda: self.s.capture(candidate))
+        with patch("judgment_layer.assessment.assess", return_value={"choice": "supported"}) as model:
+            blocked = review_assist(self.s, item["id"])
+            self.assertFalse(blocked["ok"])
+            model.assert_not_called()
+            self.op(lambda: self.s.owner_action(dependency["id"], 1, dependency["digest"], "admit", "Synthetic fixture", True))
+            approved_advice = review_assist(self.s, item["id"])
+            self.assertTrue(approved_advice["ok"])
+            self.op(lambda: self.s.owner_action(dependency["id"], 1, dependency["digest"], "withdraw", "Synthetic withdrawal", True))
+            self.assertEqual(self.op(lambda: current_advice(self.s, item["record"])), {"status": "stale"})
+            self.assertTrue(self.op(lambda: admission_issues(self.s, item["record"])))

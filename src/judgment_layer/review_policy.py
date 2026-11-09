@@ -40,7 +40,8 @@ def current_advice(store, record):
         if event["kind"] != "review_assessed" or event.get("record_digest") != record_digest:
             continue
         result = event["data"]["result"]
-        if result.get("policy_digest") == policy_digest:
+        if (result.get("policy_digest") == policy_digest
+                and result.get("deterministic_issues") == admission_issues(store, record)):
             return result
         return {"status": "stale"}
     return None
@@ -52,6 +53,12 @@ def admission_issues(store, record):
         issues.append("Resolve conflicting or uncertain judgments.")
     if record["judgment"]["rationale"] is None or record["provenance"]["origin"] == "unknown":
         issues.append("Record the rationale and who made the judgment before approval.")
+    for link in record["links"]:
+        if link["relation"] != "depends_on":
+            continue
+        dependency = store.record(link["id"], link["version"])
+        if store.state(dependency) != "admitted" or digest(dependency) != link["digest"]:
+            issues.append("Dependency must be admitted at the exact linked revision.")
     return issues
 
 

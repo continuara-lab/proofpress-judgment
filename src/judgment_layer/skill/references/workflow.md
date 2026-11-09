@@ -5,14 +5,14 @@ Keep temporary input files private and outside version control.
 
 ## Propose a judgment
 
-Adapt coding.json or `judgment example` to the actual guidance. Use the real
+Adapt coding.json or `proofpress example` to the actual guidance. Use the real
 timestamp, attribution and source references. Rationale describes a recorded
-reason; do not fabricate an explanation. `judgment schema` prints the complete
+reason; do not fabricate an explanation. `proofpress schema` prints the complete
 schema. Capture fills in identity and first-version fields:
 
 ```sh
-judgment --workspace PATH capture --from candidate.json
-judgment --workspace PATH show ID --version 1 --format markdown
+proofpress --workspace PATH capture --from candidate.json
+proofpress --workspace PATH show ID --version 1
 ```
 
 Capture returns the ID, version, digest and proposed state. Tell the human what
@@ -26,9 +26,9 @@ match a record. Example: `{"generated_file": true}`. Use exactly the same scope
 as the applicable record, for example `coding/generated-files`.
 
 ```sh
-judgment --workspace PATH context --scope coding/generated-files --facts facts.json \
-  --actor agent:assistant --purpose 'Plan a generated client change'
-judgment --workspace PATH check --receipt RECEIPT_ID --facts facts.json
+proofpress --workspace PATH context --scope coding/generated-files --facts facts.json \
+  --actor agent:assistant --purpose 'Plan a generated client change' --format agent
+proofpress --workspace PATH check --receipt RECEIPT_ID --facts facts.json
 ```
 
 The receipt records what was supplied, not whether the agent followed it. Scope
@@ -41,10 +41,14 @@ Inspect `show ID` for the latest digest. Prepare new content without the generat
 ID, version or revises link; preserve sources and explain the changed conditions.
 
 ```sh
-judgment --workspace PATH revise ID --from revised.json --base-digest DIGEST \
+proofpress --workspace PATH revise ID --from revised.json --base-digest DIGEST \
   --reason 'Explain the new evidence or changed condition'
 ```
 
 The new version is another candidate. The old admitted version stays active until
 the human admits the replacement or withdraws the old version. Ask the owner to
 withdraw incorrect guidance promptly. Never silently broaden or auto-admit it.
+
+Default output is concise text, also in pipes. Use `--format agent` for small
+JSON results, `show ID` for review, and `--json` only when full records are needed.
+Do not repeatedly load the schema or history during reuse.

@@ -14,7 +14,7 @@
   "provenance": {
     "origin": "human_guidance",
     "recorded_by": "agent:assistant",
-    "decision_maker": "human:demo-owner",
+    "judged_by": "human:demo-owner",
     "recorded_at": "2026-11-07T12:05:00Z",
     "capture_method": "explicit",
     "source_refs": ["synthetic://billing-demo/message/2"]

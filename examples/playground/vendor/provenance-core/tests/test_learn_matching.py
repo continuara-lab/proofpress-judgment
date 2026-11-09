@@ -1,0 +1,1048 @@
+"""Standalone tests for trace-learn matching backends (matching.py).
+
+Tests three backends independently:
+- JaccardBackend (legacy)
+- BM25Backend (fallback)
+- LLMBackend (primary, mocked)
+
+Plus: backend auto-selection, recall_learnings integration,
+threshold/limit behavior, tag boosting, edge cases.
+"""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from trace_mcp.extensions.learn.config import LearnConfig
+from trace_mcp.extensions.learn.matching import (
+    BM25Backend,
+    JaccardBackend,
+    _BM25Index,
+    _normalize_bm25,
+    _stem,
+    _tag_overlap,
+    _tokenize,
+    get_default_backend,
+    jaccard_similarity,
+    recall_learnings,
+    score_learning,
+)
+from trace_mcp.extensions.learn.models import Learning
+
+# ── Shared test data ──────────────────────────────────────────────────────
+
+CONDA_LEARNING = Learning(
+    id="lrn_001",
+    content="Always use the ml-dev conda environment, not base",
+    tags=["conda", "env", "critical"],
+)
+LOGGING_LEARNING = Learning(
+    id="lrn_002",
+    content="Log decisions in real-time before implementing, not after",
+    tags=["trace", "logging", "discipline"],
+)
+COOKING_LEARNING = Learning(
+    id="lrn_003",
+    content="The best pasta recipe uses fresh tomatoes and basil",
+    tags=["food", "recipe"],
+)
+ATTRIBUTION_LEARNING = Learning(
+    id="lrn_004",
+    content="Version 1 over-attributed changes to AI even when human-directed",
+    tags=["attribution", "bias", "schema"],
+)
+
+ALL_LEARNINGS = [CONDA_LEARNING, LOGGING_LEARNING, COOKING_LEARNING, ATTRIBUTION_LEARNING]
+
+
+# ── Tokenization tests ───────────────────────────────────────────────────
+
+
+class TestTokenization:
+    def test_basic_tokenization(self):
+        tokens = _tokenize("Hello World")
+        assert tokens == ["hello", "world"]
+
+    def test_preserves_duplicates(self):
+        tokens = _tokenize("the cat and the dog")
+        assert tokens.count("the") == 2
+
+    def test_strips_punctuation(self):
+        tokens = _tokenize("hello, world! how's it going?")
+        assert "hello" in tokens
+        assert "world" in tokens
+
+    def test_empty_string(self):
+        assert _tokenize("") == []
+
+
+class TestTagOverlap:
+    def test_perfect_overlap(self):
+        assert _tag_overlap(["conda", "env"], ["conda", "env"]) == 1.0
+
+    def test_no_overlap(self):
+        assert _tag_overlap(["conda"], ["food"]) == 0.0
+
+    def test_partial_overlap(self):
+        score = _tag_overlap(["conda", "env", "critical"], ["conda", "env"])
+        assert 0.0 < score < 1.0
+
+    def test_empty_tags(self):
+        assert _tag_overlap([], ["conda"]) == 0.0
+        assert _tag_overlap(["conda"], []) == 0.0
+        assert _tag_overlap(["conda"], None) == 0.0
+
+    def test_case_insensitive(self):
+        assert _tag_overlap(["CONDA"], ["conda"]) == 1.0
+
+
+# ── Jaccard backend tests ────────────────────────────────────────────────
+
+
+class TestJaccardBackend:
+    def test_identical_texts(self):
+        assert jaccard_similarity("hello world", "hello world") == 1.0
+
+    def test_disjoint_texts(self):
+        assert jaccard_similarity("hello world", "foo bar") == 0.0
+
+    def test_partial_overlap(self):
+        score = jaccard_similarity("hello world", "hello there")
+        assert 0.0 < score < 1.0
+
+    def test_empty_text(self):
+        assert jaccard_similarity("", "hello") == 0.0
+        assert jaccard_similarity("hello", "") == 0.0
+
+    def test_case_insensitive(self):
+        assert jaccard_similarity("Hello World", "hello world") == 1.0
+
+    def test_score_learning_with_tags(self):
+        score_no_tags = score_learning(CONDA_LEARNING, "conda environment setup")
+        score_with_tags = score_learning(CONDA_LEARNING, "conda environment setup", context_tags=["conda"])
+        assert score_with_tags > score_no_tags
+
+    async def test_backend_interface(self):
+        """JaccardBackend implements the MatchingBackend protocol."""
+        backend = JaccardBackend()
+        results = await backend.score_batch(ALL_LEARNINGS, "conda environment")
+        assert len(results) == len(ALL_LEARNINGS)
+        assert all(isinstance(idx, int) and isinstance(score, float) for idx, score in results)
+
+    async def test_conda_ranked_above_cooking(self):
+        backend = JaccardBackend()
+        results = await backend.score_batch(ALL_LEARNINGS, "conda environment activation")
+        scores_by_id = {ALL_LEARNINGS[idx].id: score for idx, score in results}
+        assert scores_by_id["lrn_001"] > scores_by_id["lrn_003"]
+
+
+# ── BM25 backend tests ───────────────────────────────────────────────────
+
+
+class TestBM25Index:
+    def test_single_document_scoring(self):
+        docs = [["hello", "world"]]
+        index = _BM25Index(docs)
+        score = index.score(["hello"], 0)
+        assert score > 0
+
+    def test_irrelevant_query_scores_zero(self):
+        docs = [["hello", "world"]]
+        index = _BM25Index(docs)
+        score = index.score(["completely", "unrelated"], 0)
+        assert score == 0.0
+
+    def test_more_relevant_scores_higher(self):
+        docs = [
+            ["conda", "env", "ml", "dev", "activate"],
+            ["cooking", "recipe", "pasta", "tomato"],
+        ]
+        index = _BM25Index(docs)
+        query = ["conda", "env", "activate"]
+        score_relevant = index.score(query, 0)
+        score_irrelevant = index.score(query, 1)
+        assert score_relevant > score_irrelevant
+
+    def test_idf_rare_term_worth_more(self):
+        docs = [
+            ["the", "cat", "conda"],
+            ["the", "dog", "food"],
+            ["the", "bird", "seed"],
+        ]
+        index = _BM25Index(docs)
+        idf_the = index.idf("the")  # appears in all docs
+        idf_conda = index.idf("conda")  # appears in 1 doc
+        assert idf_conda > idf_the
+
+    def test_empty_corpus(self):
+        index = _BM25Index([])
+        assert index.n == 0
+
+
+class TestBM25Normalization:
+    def test_zero_stays_zero(self):
+        assert _normalize_bm25(0.0) == 0.0
+
+    def test_negative_stays_zero(self):
+        assert _normalize_bm25(-1.0) == 0.0
+
+    def test_positive_is_bounded(self):
+        """Normalized score is always < 1.0."""
+        for raw in [0.1, 1.0, 5.0, 10.0, 100.0]:
+            normed = _normalize_bm25(raw)
+            assert 0.0 < normed < 1.0
+
+    def test_monotonically_increasing(self):
+        scores = [_normalize_bm25(x) for x in [0.5, 1.0, 2.0, 5.0, 10.0]]
+        for i in range(len(scores) - 1):
+            assert scores[i] < scores[i + 1]
+
+
+class TestBM25Backend:
+    async def test_basic_scoring(self):
+        backend = BM25Backend()
+        results = await backend.score_batch(ALL_LEARNINGS, "conda environment")
+        assert len(results) == len(ALL_LEARNINGS)
+
+    async def test_conda_ranked_first(self):
+        """BM25 should rank the conda learning above cooking."""
+        backend = BM25Backend()
+        results = await backend.score_batch(ALL_LEARNINGS, "conda environment activation")
+        sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
+        top_idx = sorted_results[0][0]
+        assert ALL_LEARNINGS[top_idx].id == "lrn_001"
+
+    async def test_logging_query_finds_logging_learning(self):
+        backend = BM25Backend()
+        results = await backend.score_batch(ALL_LEARNINGS, "logging decisions real-time")
+        sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
+        top_idx = sorted_results[0][0]
+        assert ALL_LEARNINGS[top_idx].id == "lrn_002"
+
+    async def test_tag_boosting(self):
+        backend = BM25Backend(tag_weight=0.3)
+        results_no_tags = await backend.score_batch(ALL_LEARNINGS, "environment")
+        results_with_tags = await backend.score_batch(ALL_LEARNINGS, "environment", context_tags=["conda"])
+        # Conda learning should score higher with matching tags
+        conda_idx = 0  # lrn_001
+        score_no_tags = dict(results_no_tags)[conda_idx]
+        score_with_tags = dict(results_with_tags)[conda_idx]
+        assert score_with_tags > score_no_tags
+
+    async def test_empty_learnings(self):
+        backend = BM25Backend()
+        results = await backend.score_batch([], "anything")
+        assert results == []
+
+    async def test_bm25_beats_jaccard_on_term_frequency(self):
+        """BM25 should rank a doc with repeated relevant terms higher than Jaccard would."""
+        learnings = [
+            Learning(id="lrn_a", content="conda conda conda environment setup"),
+            Learning(id="lrn_b", content="conda environment setup other stuff here"),
+        ]
+        bm25 = BM25Backend(tag_weight=0.0)
+        results = await bm25.score_batch(learnings, "conda environment")
+        scores = dict(results)
+        # BM25 considers term frequency — first doc has more "conda" mentions
+        assert scores[0] > scores[1]
+
+
+# ── LLM backend tests (mocked) ───────────────────────────────────────────
+
+
+class TestLLMBackend:
+    """Tests for LLMBackend with mocked OpenAI client."""
+
+    def _make_config(self, strict: bool = False) -> LearnConfig:
+        return LearnConfig(
+            openai_api_key="test-key-123",
+            llm_model="gpt-6-luna",
+            llm_enabled=True,
+            strict_llm=strict,
+        )
+
+    async def test_llm_scoring_mocked(self):
+        """LLM backend returns scores from the mocked response."""
+        config = self._make_config()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(
+            {
+                "0": 0.95,
+                "1": 0.3,
+                "2": 0.05,
+                "3": 0.7,
+            }
+        )
+
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True):
+            with patch("trace_mcp.extensions.learn.matching.AsyncOpenAI") as MockClient:
+                mock_client = AsyncMock()
+                mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+                MockClient.return_value = mock_client
+
+                from trace_mcp.extensions.learn.matching import LLMBackend
+
+                backend = LLMBackend(config)
+                backend._client = mock_client
+
+                results = await backend.score_batch(ALL_LEARNINGS, "conda environment")
+
+        scores = dict(results)
+        assert scores[0] == pytest.approx(0.95)
+        assert scores[2] == pytest.approx(0.05)
+
+    async def test_llm_fallback_on_error(self):
+        """Permissive mode: when LLM fails, falls back to BM25."""
+        config = self._make_config(strict=False)
+
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True):
+            with patch("trace_mcp.extensions.learn.matching.AsyncOpenAI") as MockClient:
+                mock_client = AsyncMock()
+                mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
+                MockClient.return_value = mock_client
+
+                from trace_mcp.extensions.learn.matching import LLMBackend
+
+                backend = LLMBackend(config)
+                backend._client = mock_client
+
+                results = await backend.score_batch(ALL_LEARNINGS, "conda environment")
+
+        # Should still return results (from BM25 fallback)
+        assert len(results) == len(ALL_LEARNINGS)
+        scores = dict(results)
+        # BM25 should give conda learning a non-zero score
+        assert scores[0] > 0
+
+    async def test_llm_raises_in_strict_mode(self):
+        """Strict mode: LLM failure raises LLMFallbackError instead of silent fallback."""
+        from trace_mcp.extensions.learn.config import LLMFallbackError
+
+        config = self._make_config(strict=True)
+
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True):
+            with patch("trace_mcp.extensions.learn.matching.AsyncOpenAI") as MockClient:
+                mock_client = AsyncMock()
+                mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
+                MockClient.return_value = mock_client
+
+                from trace_mcp.extensions.learn.matching import LLMBackend
+
+                backend = LLMBackend(config)
+                backend._client = mock_client
+
+                with pytest.raises(LLMFallbackError, match="LLM matching failed"):
+                    await backend.score_batch(ALL_LEARNINGS, "conda environment")
+
+    async def test_llm_prefilters_large_stores(self):
+        """When store has >50 learnings, BM25 pre-filters before LLM."""
+        config = self._make_config()
+        many_learnings = [
+            Learning(id=f"lrn_{i:03d}", content=f"learning number {i}")
+            for i in range(1, 62)  # 61 learnings > MAX_DIRECT_CANDIDATES
+        ]
+
+        mock_response = MagicMock()
+        # Return scores for 50 candidates (pre-filtered)
+        scores_dict = {str(i): 0.5 for i in range(50)}
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(scores_dict)
+
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True):
+            with patch("trace_mcp.extensions.learn.matching.AsyncOpenAI") as MockClient:
+                mock_client = AsyncMock()
+                mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+                MockClient.return_value = mock_client
+
+                from trace_mcp.extensions.learn.matching import LLMBackend
+
+                backend = LLMBackend(config)
+                backend._client = mock_client
+
+                results = await backend.score_batch(many_learnings, "some context")
+
+        # Should have results (50 scored by LLM after BM25 pre-filter)
+        assert len(results) == 50
+
+
+# ── Backend auto-selection tests ──────────────────────────────────────────
+
+
+class TestBackendSelection:
+    """Test backend auto-selection priority: Embedding > LLM > BM25."""
+
+    _NO_EMBEDDING = patch(
+        "trace_mcp.extensions.learn.matching.get_embedding_provider",
+        return_value=None,
+    )
+
+    def test_bm25_when_no_api_key(self):
+        config = LearnConfig(openai_api_key=None, llm_enabled=False, embedding_backend="none")
+        backend = get_default_backend(config)
+        assert isinstance(backend, BM25Backend)
+
+    def test_bm25_when_llm_disabled(self):
+        config = LearnConfig(
+            openai_api_key="sk-test",
+            llm_enabled=False,
+            strict_llm=False,
+            embedding_backend="none",
+        )
+        backend = get_default_backend(config)
+        assert isinstance(backend, BM25Backend)
+
+    def test_bm25_when_no_openai_package(self):
+        config = LearnConfig(
+            openai_api_key="sk-test",
+            llm_enabled=True,
+            strict_llm=False,
+            embedding_backend="none",
+        )
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", False):
+            backend = get_default_backend(config)
+        assert isinstance(backend, BM25Backend)
+
+    def test_strict_mode_raises_when_no_llm_available(self):
+        """Strict mode with API key set but no backend available → raises."""
+        from trace_mcp.extensions.learn.config import LLMFallbackError
+
+        config = LearnConfig(
+            openai_api_key="sk-test",
+            llm_enabled=True,
+            strict_llm=True,
+            embedding_backend="none",
+        )
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", False):
+            with pytest.raises(LLMFallbackError, match="Strict LLM mode"):
+                get_default_backend(config)
+
+    @pytest.mark.parametrize("local_only", [False, True])
+    def test_a_key_alone_does_not_make_strict_mode_refuse_keyword_recall(self, local_only: bool):
+        """Nothing cloud-related was asked for, so the only permitted path (BM25) must not be refused."""
+        config = LearnConfig(
+            openai_api_key="sk-test",
+            llm_enabled=False,
+            strict_llm=True,
+            local_only=local_only,
+            embedding_backend="auto",
+        )
+        with (
+            patch("trace_mcp.extensions.learn.embeddings._HAS_FASTEMBED", False),
+            patch("trace_mcp.extensions.learn.embeddings._HAS_MODEL2VEC", True),
+        ):
+            backend = get_default_backend(config)
+        assert isinstance(backend, BM25Backend)
+
+    def test_strict_mode_still_refuses_when_openai_embeddings_were_requested_but_unavailable(self):
+        from trace_mcp.extensions.learn.config import LLMFallbackError
+
+        config = LearnConfig(openai_api_key="sk-test", llm_enabled=False, strict_llm=True, embedding_backend="openai")
+        with patch("trace_mcp.extensions.learn.embeddings._HAS_OPENAI", False):
+            with pytest.raises(LLMFallbackError):
+                get_default_backend(config)
+
+    def test_llm_when_configured(self):
+        config = LearnConfig(openai_api_key="sk-test", llm_enabled=True, embedding_backend="none")
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True):
+            with patch("trace_mcp.extensions.learn.matching.AsyncOpenAI"):
+                backend = get_default_backend(config)
+        # Can't check isinstance(LLMBackend) easily due to conditional import
+        assert not isinstance(backend, BM25Backend)
+        assert not isinstance(backend, JaccardBackend)
+
+    def test_embedding_preferred_over_llm(self):
+        """When an embedding provider is configured, EmbeddingBackend is selected even with an API key."""
+        pytest.importorskip("model2vec")  # optional dep — skip cleanly when absent
+        from trace_mcp.extensions.learn.matching import EmbeddingBackend
+
+        config = LearnConfig(openai_api_key="sk-test", llm_enabled=True, embedding_backend="model2vec")
+        backend = get_default_backend(config)
+        assert isinstance(backend, EmbeddingBackend)
+
+    def test_embedding_none_falls_through(self):
+        config = LearnConfig(openai_api_key=None, llm_enabled=False, embedding_backend="none")
+        backend = get_default_backend(config)
+        assert isinstance(backend, BM25Backend)
+
+
+# ── recall_learnings integration tests ────────────────────────────────────
+
+
+class TestRecallLearnings:
+    async def test_threshold_filters(self):
+        """Results below threshold are excluded."""
+        results = await recall_learnings(
+            ALL_LEARNINGS,
+            "conda environment",
+            threshold=0.5,
+            backend=JaccardBackend(),
+        )
+        for r in results:
+            assert r["score"] >= 0.5
+
+    async def test_limit_caps_results(self):
+        results = await recall_learnings(
+            ALL_LEARNINGS,
+            "conda environment",
+            threshold=0.0,  # Include everything
+            limit=2,
+            backend=JaccardBackend(),
+        )
+        assert len(results) <= 2
+
+    async def test_sorted_by_score_descending(self):
+        results = await recall_learnings(
+            ALL_LEARNINGS,
+            "conda environment",
+            threshold=0.0,
+            backend=JaccardBackend(),
+        )
+        scores = [r["score"] for r in results]
+        assert scores == sorted(scores, reverse=True)
+
+    async def test_empty_learnings(self):
+        results = await recall_learnings([], "anything", backend=JaccardBackend())
+        assert results == []
+
+    async def test_result_structure(self):
+        results = await recall_learnings(
+            [CONDA_LEARNING],
+            "conda",
+            threshold=0.0,
+            backend=JaccardBackend(),
+        )
+        assert len(results) == 1
+        assert "learning" in results[0]
+        assert "score" in results[0]
+        assert results[0]["learning"]["id"] == "lrn_001"
+
+    async def test_bm25_backend_via_recall(self):
+        """BM25 backend works through the recall_learnings interface."""
+        results = await recall_learnings(
+            ALL_LEARNINGS,
+            "conda environment activation",
+            threshold=0.05,
+            backend=BM25Backend(),
+        )
+        assert len(results) > 0
+        # Conda learning should be in results
+        ids = [r["learning"]["id"] for r in results]
+        assert "lrn_001" in ids
+
+    async def test_cooking_not_returned_for_conda_query(self):
+        """Unrelated learnings should be filtered out."""
+        results = await recall_learnings(
+            ALL_LEARNINGS,
+            "conda environment ml-dev activate",
+            threshold=0.1,
+            backend=BM25Backend(),
+        )
+        ids = [r["learning"]["id"] for r in results]
+        assert "lrn_003" not in ids  # cooking learning
+
+
+# ── BM25 vs Jaccard comparison tests ─────────────────────────────────────
+
+
+class TestBM25VsJaccard:
+    """Tests demonstrating BM25 improvements over Jaccard."""
+
+    async def test_bm25_handles_document_length_better(self):
+        """BM25 normalizes for doc length; Jaccard penalizes long docs."""
+        short = Learning(id="short", content="conda env")
+        long_doc = Learning(
+            id="long",
+            content="use the conda env ml-dev for all machine learning tasks in this project",
+        )
+        query = "conda env"
+
+        jaccard = JaccardBackend(tag_weight=0.0)
+        bm25 = BM25Backend(tag_weight=0.0)
+
+        j_results = dict(await jaccard.score_batch([short, long_doc], query))
+        b_results = dict(await bm25.score_batch([short, long_doc], query))
+
+        # Jaccard heavily penalizes the long doc (low intersection/union ratio)
+        assert j_results[0] > j_results[1]
+        # BM25 is more balanced — both mention conda env equally
+        # The ratio between scores should be closer for BM25
+        j_ratio = j_results[1] / j_results[0] if j_results[0] > 0 else 0
+        b_ratio = b_results[1] / b_results[0] if b_results[0] > 0 else 0
+        assert b_ratio > j_ratio  # BM25 is less punitive on long docs
+
+
+# ── Stemmer unit tests ──────────────────────────────────────────────────
+
+
+class TestStemmer:
+    """Tests for the lightweight suffix-stripping stemmer."""
+
+    def test_plural_s(self):
+        assert _stem("decisions") == "decision"
+        assert _stem("errors") == "error"
+        assert _stem("thresholds") == "threshold"
+
+    def test_plural_ies(self):
+        assert _stem("entries") == "entry"
+        assert _stem("queries") == "query"
+        assert _stem("boundaries") == "boundary"
+
+    def test_plural_sses(self):
+        assert _stem("processes") == "process"
+        assert _stem("addresses") == "address"
+
+    def test_plural_ches_shes_xes_zes(self):
+        assert _stem("watches") == "watch"
+        assert _stem("pushes") == "push"
+        assert _stem("fixes") == "fix"
+
+    def test_gerund_ing(self):
+        assert _stem("implementing") == "implement"
+        assert _stem("working") == "work"
+        assert _stem("testing") == "test"
+
+    def test_gerund_doubled_consonant(self):
+        assert _stem("logging") == "log"
+        assert _stem("running") == "run"
+        assert _stem("sitting") == "sit"
+        assert _stem("stopping") == "stop"
+
+    def test_past_tense_ed(self):
+        assert _stem("implemented") == "implement"
+        assert _stem("worked") == "work"
+        assert _stem("tested") == "test"
+
+    def test_past_tense_doubled_consonant(self):
+        assert _stem("logged") == "log"
+        assert _stem("stopped") == "stop"
+
+    def test_multi_step_stemming(self):
+        """Plural + gerund stripping in sequence."""
+        assert _stem("learnings") == "learn"
+        assert _stem("learning") == "learn"
+        assert _stem("learn") == "learn"
+
+    def test_short_words_unchanged(self):
+        assert _stem("log") == "log"
+        assert _stem("the") == "the"
+        assert _stem("is") == "is"
+
+    def test_protected_endings(self):
+        """Words ending in -ss, -us, -is should not lose their trailing 's'."""
+        assert _stem("process") == "process"
+        assert _stem("status") == "status"
+        assert _stem("analysis") == "analysis"
+
+    def test_no_vowel_in_stem_prevents_stripping(self):
+        """'string' ending in 'ing' should not be stemmed (stem 'str' has no vowel)."""
+        assert _stem("string") == "string"
+
+    def test_tokenize_with_stemming(self):
+        tokens = _tokenize("logging decisions and implementing errors", stem=True)
+        assert "log" in tokens
+        assert "decision" in tokens
+        assert "implement" in tokens
+        assert "error" in tokens
+
+    def test_tokenize_without_stemming(self):
+        """Default tokenization does not stem."""
+        tokens = _tokenize("logging decisions")
+        assert "logging" in tokens
+        assert "decisions" in tokens
+
+
+# ── BM25 stemming tests ─────────────────────────────────────────────────
+
+
+class TestBM25Stemming:
+    """Tests that BM25 stemming fixes morphological mismatches."""
+
+    async def test_decisions_matches_decision(self):
+        """'decisions' in query should match 'decision' in learning."""
+        learnings = [
+            Learning(id="lrn_a", content="Log every decision in TRACE before acting"),
+            Learning(id="lrn_b", content="Best pasta recipe uses fresh tomatoes"),
+        ]
+        backend = BM25Backend(tag_weight=0.0)
+        results = await backend.score_batch(learnings, "How should I handle decisions?")
+        scores = dict(results)
+        assert scores[0] > scores[1]
+
+    async def test_logging_matches_log(self):
+        """'logging' in learning should match 'log' in query."""
+        learnings = [
+            Learning(id="lrn_a", content="Logging discipline is critical for TRACE"),
+            Learning(id="lrn_b", content="Best pasta recipe uses fresh tomatoes"),
+        ]
+        backend = BM25Backend(tag_weight=0.0)
+        results = await backend.score_batch(learnings, "How do I log to TRACE?")
+        scores = dict(results)
+        assert scores[0] > scores[1]
+
+    async def test_errors_matches_error(self):
+        """'errors' in learning should match 'error' in query."""
+        learnings = [
+            Learning(id="lrn_a", content="Check API errors carefully before retrying"),
+            Learning(id="lrn_b", content="Best pasta recipe uses fresh tomatoes"),
+        ]
+        backend = BM25Backend(tag_weight=0.0)
+        results = await backend.score_batch(learnings, "Got an error from the API")
+        scores = dict(results)
+        assert scores[0] > scores[1]
+
+    async def test_stemming_improves_morphological_recall(self):
+        """Query with morphological variants recalls the correct learning."""
+        learnings = [
+            Learning(id="lrn_001", content="Always use ml-dev conda environment, not base"),
+            Learning(id="lrn_002", content="Log decisions before implementing — TRACE discipline"),
+        ]
+        backend = BM25Backend(tag_weight=0.0)
+        results = await backend.score_batch(learnings, "implementing decisions in the workflow")
+        scores = dict(results)
+        assert scores[1] > scores[0]  # lrn_002 > lrn_001
+
+
+# ── Per-backend threshold tests ──────────────────────────────────────────
+
+
+class TestBackendThresholds:
+    """Tests for per-backend default threshold configuration."""
+
+    def test_bm25_default_threshold(self):
+        assert BM25Backend().default_threshold == 0.15
+
+    def test_jaccard_default_threshold(self):
+        assert JaccardBackend().default_threshold == 0.1
+
+    def test_llm_default_threshold(self):
+        config = LearnConfig(openai_api_key="test", llm_enabled=True)
+        with patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True):
+            with patch("trace_mcp.extensions.learn.matching.AsyncOpenAI"):
+                from trace_mcp.extensions.learn.matching import LLMBackend
+
+                backend = LLMBackend(config)
+        assert backend.default_threshold == 0.2
+
+    async def test_recall_marks_matches_by_the_backend_floor_when_none(self):
+        """threshold=None: the backend's default is the match floor; a small store still returns everything."""
+        backend = BM25Backend()
+        results = await recall_learnings(ALL_LEARNINGS, "conda environment", threshold=None, backend=backend)
+        assert len(results) == len(ALL_LEARNINGS)
+        for r in results:
+            assert r["matched"] == (r["score"] >= backend.default_threshold)
+        assert any(r["matched"] for r in results) and not all(r["matched"] for r in results)
+
+    async def test_explicit_threshold_filters_by_the_legacy_combined_score(self):
+        """An explicit threshold is an absolute cutoff on the legacy score; only passing learnings return."""
+        backend = BM25Backend()
+        strict = await recall_learnings(ALL_LEARNINGS, "conda environment", threshold=0.01, backend=backend)
+        loose = await recall_learnings(ALL_LEARNINGS, "conda environment", threshold=0.0, backend=backend)
+        assert all(r["score"] >= 0.01 and r["matched"] for r in strict)
+        assert len(loose) == len(ALL_LEARNINGS) and 0 < len(strict) < len(loose)
+
+
+# ── Recall tracking tests ────────────────────────────────────────────────
+
+
+class TestRecallTracking:
+    """Tests that recall_learnings increments recall_count and sets last_surfaced."""
+
+    async def test_recall_count_incremented(self):
+        """Matched learnings should have recall_count incremented."""
+        lrn = Learning(id="lrn_001", content="use ml-dev conda environment")
+        assert lrn.recall_count == 0
+        results = await recall_learnings(
+            [lrn],
+            "conda environment",
+            threshold=0.0,
+            backend=BM25Backend(),
+        )
+        assert len(results) > 0
+        assert lrn.recall_count == 1
+
+    async def test_last_surfaced_set(self):
+        """Matched learnings should have last_surfaced set."""
+        lrn = Learning(id="lrn_001", content="use ml-dev conda environment")
+        assert lrn.last_surfaced is None
+        await recall_learnings(
+            [lrn],
+            "conda environment",
+            threshold=0.0,
+            backend=BM25Backend(),
+        )
+        assert lrn.last_surfaced is not None
+
+    async def test_below_threshold_not_tracked(self):
+        """Learnings that don't match (below threshold) should not be tracked."""
+        lrn = Learning(id="lrn_001", content="best pasta recipe with tomatoes")
+        await recall_learnings(
+            [lrn],
+            "conda environment ml-dev",
+            threshold=0.5,
+            backend=BM25Backend(),
+        )
+        assert lrn.recall_count == 0
+        assert lrn.last_surfaced is None
+
+    async def test_multiple_recalls_accumulate(self):
+        """Multiple recalls should accumulate recall_count."""
+        lrn = Learning(id="lrn_001", content="use ml-dev conda environment")
+        for _ in range(3):
+            await recall_learnings(
+                [lrn],
+                "conda environment",
+                threshold=0.0,
+                backend=BM25Backend(),
+            )
+        assert lrn.recall_count == 3
+
+
+# ── Additional BM25 tests (Phase 5a) ────────────────────────────────────
+
+
+class TestBM25IndexDetailed:
+    """Additional BM25 index tests for Phase 5a coverage."""
+
+    def test_index_creation_doc_count(self):
+        docs = [["a", "b"], ["c", "d"], ["e", "f"]]
+        index = _BM25Index(docs)
+        assert index.n == 3
+
+    def test_index_creation_avgdl(self):
+        docs = [["a", "b"], ["c", "d", "e", "f"]]
+        index = _BM25Index(docs)
+        assert index.avgdl == 3.0  # (2 + 4) / 2
+
+    def test_idf_common_term(self):
+        """Term in all docs has low IDF."""
+        docs = [["the", "cat"], ["the", "dog"], ["the", "bird"]]
+        index = _BM25Index(docs)
+        idf = index.idf("the")
+        # IDF for term in all docs: log((3 - 3 + 0.5) / (3 + 0.5) + 1) = log(1.143) ≈ 0.13
+        assert idf < 0.2
+
+    def test_idf_rare_term(self):
+        """Term in 1 of 3 docs has high IDF."""
+        docs = [["the", "cat"], ["the", "dog"], ["the", "bird"]]
+        index = _BM25Index(docs)
+        idf = index.idf("cat")
+        assert idf > 0.5
+
+    def test_score_exact_match_high(self):
+        """Query matching doc perfectly gives a high score."""
+        docs = [["conda", "environment", "setup"]]
+        index = _BM25Index(docs)
+        score = index.score(["conda", "environment", "setup"], 0)
+        assert score > 0
+
+    def test_score_no_match_zero(self):
+        """Query with no overlap scores zero."""
+        docs = [["conda", "environment", "setup"]]
+        index = _BM25Index(docs)
+        score = index.score(["pasta", "recipe", "tomato"], 0)
+        assert score == 0.0
+
+    def test_score_partial_match_moderate(self):
+        """Some query overlap gives moderate score."""
+        docs = [["conda", "environment", "setup", "python"]]
+        index = _BM25Index(docs)
+        full = index.score(["conda", "environment", "setup", "python"], 0)
+        partial = index.score(["conda", "environment"], 0)
+        assert 0 < partial < full
+
+
+class TestBM25BackendExtended:
+    """Additional BM25Backend tests for Phase 5a."""
+
+    async def test_score_batch_with_real_learnings(self):
+        """Full backend with realistic learnings."""
+        learnings = [
+            Learning(id="lrn_001", content="Use ml-dev conda environment for machine learning tasks"),
+            Learning(id="lrn_002", content="Log all decisions before implementing code changes"),
+            Learning(id="lrn_003", content="Fresh tomatoes make the best pasta sauce"),
+        ]
+        backend = BM25Backend(tag_weight=0.0)
+        results = await backend.score_batch(learnings, "conda environment ml-dev")
+        scores = dict(results)
+        assert scores[0] > scores[2]  # conda > pasta
+
+    async def test_empty_query_low_scores(self):
+        """Empty or very short query yields near-zero scores."""
+        learnings = [
+            Learning(id="lrn_001", content="Use ml-dev conda environment"),
+            Learning(id="lrn_002", content="Log decisions before implementing"),
+        ]
+        backend = BM25Backend(tag_weight=0.0)
+        results = await backend.score_batch(learnings, "")
+        scores = dict(results)
+        assert scores[0] == pytest.approx(0.0)
+        assert scores[1] == pytest.approx(0.0)
+
+
+class TestNormalizeBM25Extended:
+    """Additional normalization tests."""
+
+    def test_high_score_approaches_one(self):
+        """Very high raw score should approach but not reach 1.0."""
+        normed = _normalize_bm25(1000.0)
+        assert normed > 0.99
+        assert normed < 1.0
+
+
+class TestBM25VsJaccardRankAgreement:
+    """Both backends should agree on top result for obvious data."""
+
+    async def test_both_rank_same_top(self):
+        learnings = [
+            Learning(id="lrn_001", content="conda environment ml-dev activation"),
+            Learning(id="lrn_002", content="tomato pasta recipe Italian cooking"),
+            Learning(id="lrn_003", content="machine learning model training GPU"),
+        ]
+        query = "conda ml-dev environment"
+
+        bm25 = BM25Backend(tag_weight=0.0)
+        jaccard = JaccardBackend(tag_weight=0.0)
+
+        bm25_results = sorted(await bm25.score_batch(learnings, query), key=lambda x: x[1], reverse=True)
+        jaccard_results = sorted(await jaccard.score_batch(learnings, query), key=lambda x: x[1], reverse=True)
+
+        assert bm25_results[0][0] == jaccard_results[0][0]  # Same top result
+
+
+# ── Text-only similarity and query cleaning ───────────────────────────────
+
+
+class TestTextScores:
+    async def test_bm25_text_scores_match_an_independent_calculation(self):
+        backend = BM25Backend()
+        text = await backend.text_scores(ALL_LEARNINGS, "conda environment")
+        docs = [_tokenize(lrn.content, stem=True) for lrn in ALL_LEARNINGS]
+        index = _BM25Index(docs, k1=1.5, b=0.75)
+        q = _tokenize("conda environment", stem=True)
+        expected = [_normalize_bm25(index.score(q, i)) for i in range(len(ALL_LEARNINGS))]
+        assert text == pytest.approx(expected)
+        assert text[0] > 0.0 and text[2] == 0.0
+
+    async def test_bm25_score_batch_is_text_plus_tag_mixture(self):
+        backend = BM25Backend(tag_weight=0.3)
+        text = await backend.text_scores(ALL_LEARNINGS, "conda environment")
+        combined = dict(await backend.score_batch(ALL_LEARNINGS, "conda environment", ["conda", "env"]))
+        for i, lrn in enumerate(ALL_LEARNINGS):
+            assert combined[i] == pytest.approx(0.7 * text[i] + 0.3 * _tag_overlap(lrn.tags, ["conda", "env"]))
+
+    async def test_jaccard_text_scores_full_list(self):
+        backend = JaccardBackend()
+        text = await backend.text_scores(ALL_LEARNINGS, "conda environment")
+        assert text == [jaccard_similarity(lrn.content, "conda environment") for lrn in ALL_LEARNINGS]
+        assert len(set(text)) > 1
+
+    async def test_jaccard_score_batch_delegates_to_text_scores(self):
+        backend = JaccardBackend(tag_weight=0.5)
+        backend.text_scores = AsyncMock(return_value=[0.5, 0.25, 0.0, 1.0])  # type: ignore[method-assign]
+        combined = dict(await backend.score_batch(ALL_LEARNINGS, "ctx", ["conda"]))
+        assert combined[0] == pytest.approx(0.5 * 0.5 + 0.5 * _tag_overlap(CONDA_LEARNING.tags, ["conda"]))
+        assert combined[2] == pytest.approx(0.0)
+        assert combined[3] == pytest.approx(0.5 * 1.0)
+
+    async def test_text_scores_align_and_handle_empty(self):
+        for backend in (JaccardBackend(), BM25Backend()):
+            assert await backend.text_scores([], "x") == []
+            assert len(await backend.text_scores(ALL_LEARNINGS, "x")) == len(ALL_LEARNINGS)
+
+    async def test_llm_text_scores_prefilter_and_densify_through_the_real_path(self):
+        """61 learnings: BM25 pre-filters to 50, the LLM scores those, the rest are 0.0."""
+        config = LearnConfig(openai_api_key="test-key-123", llm_model="gpt-6-luna", llm_enabled=True, strict_llm=True)
+        many = [Learning(id=f"lrn_{i:03d}", content=f"learning number {i}") for i in range(1, 62)]
+        many[60] = Learning(id="lrn_061", content="the conda environment note")  # the only lexical hit
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({"0": 0.9})  # the pre-filter put the hit first
+        with (
+            patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True),
+            patch("trace_mcp.extensions.learn.matching.AsyncOpenAI") as mock_cls,
+        ):
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+            mock_cls.return_value = mock_client
+            from trace_mcp.extensions.learn.matching import LLMBackend
+
+            backend = LLMBackend(config)
+            backend._client = mock_client
+            scores = await backend.text_scores(many, "conda environment")
+        assert len(scores) == 61
+        mock_client.chat.completions.create.assert_awaited_once()
+        assert scores[60] == 0.9
+        assert sum(1 for sc in scores if sc > 0.0) == 1
+
+    async def test_llm_and_embedding_text_scores_handle_empty_input(self):
+        config = LearnConfig(openai_api_key="test-key-123", llm_enabled=True, strict_llm=True)
+        with (
+            patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True),
+            patch("trace_mcp.extensions.learn.matching.AsyncOpenAI"),
+        ):
+            from trace_mcp.extensions.learn.matching import EmbeddingBackend, LLMBackend
+
+            assert await LLMBackend(config).text_scores([], "x") == []
+        provider = AsyncMock()
+        provider.model_name = "m"
+        assert await EmbeddingBackend(provider=provider).text_scores([], "x") == []
+        provider.embed_query.assert_not_awaited()
+
+    async def test_llm_text_scores_densify_without_tag_context(self):
+        config = LearnConfig(openai_api_key="sk-test", llm_enabled=True, strict_llm=True)
+        with (
+            patch("trace_mcp.extensions.learn.matching._HAS_OPENAI", True),
+            patch("trace_mcp.extensions.learn.matching.AsyncOpenAI"),
+        ):
+            from trace_mcp.extensions.learn.matching import LLMBackend
+
+            backend = LLMBackend(config)
+        backend.score_batch = AsyncMock(return_value=[(2, 0.9), (0, 0.4)])  # type: ignore[method-assign]
+        assert await backend.text_scores(ALL_LEARNINGS, "ctx") == [0.4, 0.0, 0.9, 0.0]
+        backend.score_batch.assert_awaited_once_with(ALL_LEARNINGS, "ctx", None)
+
+
+class TestCleanQuery:
+    def test_strips_run_tokens_hex_and_uuids_and_splits_slugs(self):
+        from trace_mcp.extensions.learn.matching import clean_query
+
+        q = "RUN_TOKEN=3b09311f2873 task A norrell_photonics 550e8400-e29b-41d4-a716-446655440000 deadbeefcafe"
+        assert clean_query(q) == "task A norrell photonics"
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("Fix the recall threshold in trace-learn", "Fix the recall threshold in trace-learn"),
+            ("Fix recall", "Fix recall"),
+            ("Why does ssl_verify=false fail?", "Why does ssl verify false fail?"),
+            ("RUN_TOKEN=session_123 task A", "task A"),
+            ("SESSION_ID=abc task", "task"),
+            (
+                "Compare isolation_level=serializable versus isolation_level=read_committed",
+                "Compare isolation level serializable versus isolation level read committed",
+            ),
+            ("debug _load_config", "debug load config"),
+            ("a __ b", "a b"),
+            ("123456 task", "task"),
+            ("1234567 task", "task"),
+            ("12345 task", "12345 task"),
+            ("ticket 3b09311f2873.", "ticket"),
+        ],
+    )
+    def test_keeps_topical_words_and_drops_labels(self, text: str, expected: str):
+        from trace_mcp.extensions.learn.matching import clean_query
+
+        assert clean_query(text) == expected
+
+    @pytest.mark.parametrize(
+        "text", ["RUN_TOKEN=abcdef123456", "RUN_TOKEN=abcdef123456 deadbeefcafe 123456", "", "   "]
+    )
+    def test_returns_original_when_nothing_survives(self, text: str):
+        from trace_mcp.extensions.learn.matching import clean_query
+
+        assert clean_query(text) == text

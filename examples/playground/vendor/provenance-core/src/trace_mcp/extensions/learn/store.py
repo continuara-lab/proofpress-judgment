@@ -1,0 +1,423 @@
+"""File I/O for the trace-learn knowledge store.
+
+Stores per-project knowledge as JSON in ~/.trace/knowledge/{project}.json.
+Uses atomic writes (write to temp file, then rename) to prevent corruption.
+
+Reads are permissive and writes are fail-closed: a store whose learning ids are
+already aliased still loads, lists, and exports, but every write path refuses
+until `trace-mcp identity repair-ids` renumbers it (INV-12).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
+
+from trace_mcp.extensions.learn.models import KnowledgeStore, Learning
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from trace_mcp.extensions.learn.models import LearningCategory
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_DIR = os.path.expanduser("~/.trace/knowledge")
+
+
+def _get_directory(directory: str | None = None) -> Path:
+    return Path(directory or os.environ.get("TRACE_KNOWLEDGE_DIR", _DEFAULT_DIR))
+
+
+def _store_path(project: str, directory: str | None = None) -> Path:
+    # Key the store file by the CANONICAL project key, so case/separator variants
+    # (TRACE vs trace, proj a vs proj_a) resolve to ONE file and a case-insensitive
+    # filesystem cannot silently merge two distinct projects (ADR-006). Extensions
+    # may import core (ADR-003); core never imports back.
+    from trace_mcp.project_identity import canonical_project_key
+
+    return _get_directory(directory) / f"{canonical_project_key(project)}.json"
+
+
+@contextmanager
+def project_lock(project: str, directory: str | None = None) -> Iterator[None]:
+    """Fail-closed per-project cross-process lock around a load→mutate→save span.
+
+    The shared knowledge store is read-modify-write; without a lock, two TRACE
+    sessions mutating the SAME project concurrently silently lose one update
+    (last-writer-wins). The lock is keyed by the canonical store path so
+    case/separator variants of a project contend on ONE lock (matching the one
+    store file), and unrelated projects never contend.
+
+    **Fail closed** (INV-8): uses the dependency-free O_EXCL + PID-liveness lock
+    (``project_identity.exclusive_file_lock``), which raises ``TimeoutError``
+    rather than proceeding unlocked. The previous behavior — a no-op when the
+    optional ``filelock`` package was absent, and proceed-on-timeout — silently
+    reopened the lost-update window the lock exists to close, violating the
+    repo's own fail-closed standard.
+    """
+    from trace_mcp.project_identity import exclusive_file_lock
+
+    timeout = float(os.environ.get("TRACE_LOCK_TIMEOUT", "15"))
+    lock_path = str(_store_path(project, directory)) + ".lock"
+    with exclusive_file_lock(lock_path, timeout=timeout):
+        yield
+
+
+class StoreLoadError(Exception):
+    """Raised when a knowledge store file exists but cannot be parsed."""
+
+
+class DuplicateLearningIdError(Exception):
+    """Raised when a WRITE is attempted on a store carrying aliased learning ids."""
+
+
+def _refuse_duplicate_ids(store: KnowledgeStore) -> None:
+    """Fail closed before any write to a store whose ids are already aliased.
+
+    Reads are deliberately unaffected (``load_store`` never raises on duplicates)
+    so an aliased store stays recoverable, exportable, and searchable. Writing,
+    though, extends the damage: dedup, recall counts, the positional embedding
+    sidecar, and every recorded reference key on the id, so a second learning
+    under an existing id makes both unaddressable. Raising here turns a silent
+    corruption into an operator task with a named fix (INV-12).
+
+    Raises:
+        DuplicateLearningIdError: at least one id is carried by two learnings.
+    """
+    duplicates = store.duplicate_learning_ids()
+    if not duplicates:
+        return
+    # Name the CANONICAL key in the remediation command: `project` is a free-text
+    # display label, and the repair command addresses stores by canonical key.
+    from trace_mcp.project_identity import ProjectKeyError, canonical_project_key
+
+    try:
+        key = canonical_project_key(store.project)
+    except ProjectKeyError:
+        key = store.project
+    raise DuplicateLearningIdError(
+        f"knowledge store for project {store.project!r} carries aliased learning id(s): "
+        f"{', '.join(duplicates)}. Refusing to write — a reference naming one of these ids "
+        "cannot be resolved, and writing would spread the aliasing. Repair it with "
+        "`trace-mcp identity snapshot` then "
+        f"`trace-mcp identity repair-ids {key}`."
+    )
+
+
+def _assert_store_identity(ks: KnowledgeStore, project: str, path: Path) -> None:
+    """Fail closed if a store's own project disagrees with the key it loaded as.
+
+    With canonical store paths a file should only ever be reached by a label that
+    canonicalizes to the same key. A mismatch means the file is misplaced or
+    tampered — it must not silently answer for another project.
+    """
+    from trace_mcp.project_identity import StoreIdentityError, canonical_project_key
+
+    if not ks.project:
+        return
+    if canonical_project_key(ks.project) != canonical_project_key(project):
+        raise StoreIdentityError(
+            f"knowledge store {path} declares project {ks.project!r} but was loaded as {project!r} "
+            "(different canonical keys) — refusing to answer for another project."
+        )
+
+
+def load_store(
+    project: str,
+    directory: str | None = None,
+) -> KnowledgeStore:
+    """Load a project's knowledge store from disk.
+
+    A missing file returns a fresh empty store — that is the normal first-use
+    state, not damage. A file that EXISTS but cannot be parsed or validated
+    raises ``StoreLoadError`` (fail closed): the previous silent fresh-store
+    fallback meant the next save atomically REPLACED the corrupt original with
+    the empty store — destroying a recoverable file and reading to the caller
+    as "this project has no learnings" when the truth was "this project's
+    learnings are unreadable". A missed integrity failure must be visible to
+    the caller, not buried in a log line.
+    """
+    path = _store_path(project, directory)
+    if not path.exists():
+        return KnowledgeStore(project=project)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        ks = KnowledgeStore.model_validate(raw)
+    except json.JSONDecodeError as exc:
+        raise StoreLoadError(
+            f"Corrupt JSON in knowledge store {path}: {exc}. Repair or move the file — "
+            "proceeding would replace it with an empty store on the next save."
+        ) from exc
+    except Exception as exc:
+        raise StoreLoadError(
+            f"Failed to validate knowledge store {path}: {exc}. Repair or move the file — "
+            "proceeding would replace it with an empty store on the next save."
+        ) from exc
+    _assert_store_identity(ks, project, path)
+    return ks
+
+
+def save_store(store: KnowledgeStore, directory: str | None = None) -> Path:
+    """Save a knowledge store to disk using atomic write.
+
+    Writes to a temporary file in the same directory then renames, so a
+    crash mid-write can never leave a half-written store file.
+    """
+    # Fail closed BEFORE touching the filesystem: an aliased store must not be
+    # rewritten under any caller (INV-12). This is the single choke point every
+    # write path funnels through, so no future writer can bypass the check.
+    _refuse_duplicate_ids(store)
+
+    path = _store_path(store.project, directory)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Refresh the updated timestamp on every save
+    store.updated = datetime.now(UTC)
+
+    data = json.dumps(store.model_dump(mode="json"), indent=2)
+
+    # Atomic write: temp file in same dir → rename
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        # Clean up temp file on any failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    # Best-effort sidecar cache for fast embedding search
+    save_embeddings_cache(store, directory)
+
+    return path
+
+
+def add_learning(
+    store: KnowledgeStore,
+    content: str,
+    category: LearningCategory = "learning",
+    source_session: str | None = None,
+    source_event: str | None = None,
+    corrects_event_ids: list[str] | None = None,
+    tags: list[str] | None = None,
+    extraction_method: Literal["llm", "rule-based", "manual"] | None = None,
+    generated_by: str | None = None,
+) -> Learning:
+    """Add a learning to the store and return it.
+
+    Side effect: appends to ``store.learnings`` and consumes one id from the
+    store's monotonic counter.
+
+    Raises:
+        DuplicateLearningIdError: the store already carries aliased ids, so the
+            caller is told at the point of the attempt rather than at save time.
+    """
+    _refuse_duplicate_ids(store)
+    learning = Learning(
+        id=store.next_learning_id(),
+        content=content,
+        category=category,
+        source_session=source_session,
+        source_event=source_event,
+        corrects_event_ids=corrects_event_ids or [],
+        tags=tags or [],
+        extraction_method=extraction_method,
+        generated_by=generated_by,
+    )
+    store.learnings.append(learning)
+    return learning
+
+
+def remove_learning(store: KnowledgeStore, learning_id: str) -> bool:
+    """Remove a learning by ID. Returns True if found and removed."""
+    for i, lrn in enumerate(store.learnings):
+        if lrn.id == learning_id:
+            store.learnings.pop(i)
+            return True
+    return False
+
+
+_TOOL_RESPONSE_EXCLUDE = {"embedding", "embedding_model"}
+
+
+def learning_to_dict(lrn: Learning) -> dict:
+    """Serialize a learning for tool/API responses (excludes bulky embedding)."""
+    return lrn.model_dump(mode="json", exclude=_TOOL_RESPONSE_EXCLUDE)
+
+
+def list_learnings(
+    store: KnowledgeStore,
+    category: str | None = None,
+) -> list[dict]:
+    """List learnings, optionally filtered by category."""
+    learnings = store.learnings
+    if category:
+        learnings = [lrn for lrn in learnings if lrn.category == category]
+    return [learning_to_dict(lrn) for lrn in learnings]
+
+
+# ── Deduplication ────────────────────────────────────────────────────────
+
+
+@dataclass
+class DedupResult:
+    """Result of a deduplicated add attempt."""
+
+    learning: Learning
+    is_duplicate: bool
+    duplicate_of: str | None = None
+
+
+def find_duplicate(
+    store: KnowledgeStore,
+    content: str,
+    threshold: float = 0.85,
+) -> Learning | None:
+    """Find an existing learning that is near-duplicate of *content*.
+
+    Uses Jaccard token-overlap similarity, which returns 1.0 for exact
+    matches and naturally handles near-duplicates.  More appropriate for
+    dedup than BM25 (which is a retrieval ranker, not a similarity metric).
+
+    Returns the best match above *threshold*, or None.
+    """
+    if not store.learnings or not content.strip():
+        return None
+
+    from trace_mcp.extensions.learn.matching import jaccard_similarity
+
+    best_score = 0.0
+    best_idx = -1
+    for i, lrn in enumerate(store.learnings):
+        score = jaccard_similarity(lrn.content, content)
+        if score > best_score:
+            best_score = score
+            best_idx = i
+
+    if best_score >= threshold and best_idx >= 0:
+        return store.learnings[best_idx]
+    return None
+
+
+def add_learning_dedup(
+    store: KnowledgeStore,
+    content: str,
+    category: LearningCategory = "learning",
+    source_session: str | None = None,
+    source_event: str | None = None,
+    corrects_event_ids: list[str] | None = None,
+    tags: list[str] | None = None,
+    dedup_threshold: float = 0.85,
+    extraction_method: Literal["llm", "rule-based", "manual"] | None = None,
+    generated_by: str | None = None,
+) -> DedupResult:
+    """Add a learning with content deduplication.
+
+    If an existing learning scores above *dedup_threshold*, returns the
+    existing one as a duplicate without adding.  Otherwise adds normally.
+    """
+    existing = find_duplicate(store, content, threshold=dedup_threshold)
+    if existing is not None:
+        return DedupResult(learning=existing, is_duplicate=True, duplicate_of=existing.id)
+
+    lrn = add_learning(
+        store,
+        content=content,
+        category=category,
+        source_session=source_session,
+        source_event=source_event,
+        corrects_event_ids=corrects_event_ids,
+        tags=tags,
+        extraction_method=extraction_method,
+        generated_by=generated_by,
+    )
+    return DedupResult(learning=lrn, is_duplicate=False)
+
+
+# ── Embedding sidecar cache ─────────────────────────────────────────────
+
+
+def _embeddings_cache_path(project: str, directory: str | None = None) -> Path:
+    """Path to the ``.npy`` sidecar embedding cache."""
+    json_path = _store_path(project, directory)
+    return json_path.with_suffix(".embeddings.npy")
+
+
+def save_embeddings_cache(store: KnowledgeStore, directory: str | None = None) -> Path | None:
+    """Save embedding matrix as a ``.npy`` sidecar file (best-effort).
+
+    Only saves if ``numpy`` is available and at least one learning has an
+    embedding.  Returns the path on success, ``None`` if skipped.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+
+    embeddings_present = [lrn for lrn in store.learnings if lrn.embedding is not None]
+    if not embeddings_present:
+        return None
+
+    first_emb = embeddings_present[0].embedding
+    assert first_emb is not None  # guaranteed by list comprehension filter above
+    dim = len(first_emb)
+    matrix = np.full((len(store.learnings), dim), np.nan, dtype=np.float32)
+    for i, lrn in enumerate(store.learnings):
+        if lrn.embedding is not None and len(lrn.embedding) == dim:
+            matrix[i] = lrn.embedding
+        # Off-dimension rows (a store mid-migration between embedding backends of
+        # different vector sizes) are left as NaN — treated as missing rather than
+        # crashing the writer with a numpy broadcast error. A stale sidecar is
+        # then rebuilt once _needs_embedding re-embeds every row to one model.
+
+    path = _embeddings_cache_path(store.project, directory)
+    # Atomic write — a crash or a concurrent reader
+    # must never observe a torn .npy sidecar. Mirrors the temp + os.replace
+    # atomic pattern used for the JSON store. Same-directory temp guarantees
+    # os.replace is an atomic rename on the same filesystem.
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".npy.tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            np.save(fh, matrix)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def load_embeddings_cache(
+    store: KnowledgeStore,
+    directory: str | None = None,
+) -> "np.ndarray | None":  # noqa: UP037 — string quote needed for optional dep
+    """Load the ``.npy`` sidecar if it exists and matches the store size."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+
+    path = _embeddings_cache_path(store.project, directory)
+    if not path.exists():
+        return None
+
+    matrix = np.load(str(path))
+    if matrix.shape[0] != len(store.learnings):
+        # Stale cache — store was modified since cache was written
+        return None
+    return matrix

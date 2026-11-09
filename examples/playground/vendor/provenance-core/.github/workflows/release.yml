@@ -1,0 +1,95 @@
+name: Release
+
+# Manual-only release. PyPI publishing is intentionally PAUSED and MUST NOT be
+# automated. This workflow has no push or tag trigger, so creating a git tag or
+# a GitHub Release (e.g. for Zenodo DOI archival) can never trigger a PyPI
+# upload.
+#
+# Fail-closed, two-step flow via "Run workflow":
+#   1. Dispatch with the `confirm` input left blank to build and run the full
+#      quality gate + packaging/leak guards against the selected ref (a safe
+#      dry run; nothing is published).
+#   2. Only a dispatch with `confirm: PUBLISH` runs the publish job, uploading
+#      to PyPI via Trusted Publishing (OIDC — no stored token).
+# Publishing stays paused until the distribution name is resolved and a release
+# is deliberately initiated.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type PUBLISH to release to PyPI. Leave blank to build & verify only (no publish)."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & verify distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      # Full-tree static gates, identical to ci.yml and CONTRIBUTING.
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (pyright)
+        run: uv run pyright
+
+      - name: Tests
+        run: uv run pytest -q -k "not uvx and not Uvx"
+
+      - name: Build & verify distribution
+        # Shared with ci.yml's `package` job — build + packaging-completeness
+        # guards + leak guard + twine, in one place so PR-time and release-time
+        # verification cannot diverge (a divergence can let the wheel ship
+        # missing required runtime files).
+        uses: ./.github/actions/build-and-verify-dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # Fail closed: publish only on an explicit, typed confirmation. No git tag
+    # or GitHub Release reaches this job — the workflow has no push trigger.
+    if: ${{ inputs.confirm == 'PUBLISH' }}
+    # Trusted Publishing binds to this environment; the PyPI project mapping and
+    # the distribution name are finalized when the publication pause is lifted.
+    environment:
+      name: pypi
+    permissions:
+      id-token: write # OIDC for PyPI Trusted Publishing
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1

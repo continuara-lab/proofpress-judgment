@@ -1,4 +1,19 @@
-# Install Judgment Layer
+# Recommended installation
+
+From the project you want to connect, run `bash /path/to/judgment-layer/install.sh`.
+It installs/upgrades the isolated Python CLI and enables Codex guidance with readable
+capture settings. Run `proofpress configure` to change them. To choose a host during
+installation, pass onboarding flags such as `--agents claude-code --owner human:me --confirm`.
+The repository is private alpha: authenticate Git first. No public npm or PyPI
+package is claimed. A public unauthenticated curl URL is not an installation path
+for a private repository.
+
+For a development virtualenv, `python -m pip install -e /path/to/judgment-layer`
+then `proofpress onboard`. Existing guidance can be backed up and refreshed using
+`proofpress onboard --upgrade`. Hook installation is explicit and still requires
+host trust. [Complete local trial](LOCAL-ALPHA.md).
+
+# Install Proofpress
 
 The runtime is Python. uv installs it in an isolated environment; the shell
 installer handles those steps for you. No npm package is required.
@@ -28,7 +43,7 @@ Or, with uv already installed:
 
 ```sh
 uv tool install --upgrade --python 3.11 git+https://github.com/continuara-lab/judgment-layer.git
-judgment setup --all --owner human:me
+proofpress setup --all --owner human:me
 ```
 
 ## Curl distribution

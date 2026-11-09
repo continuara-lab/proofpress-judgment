@@ -1,0 +1,467 @@
+"""Embedding providers for trace-learn.
+
+Generates vector embeddings for learning content.  Four providers:
+
+1. **fastembed** ``snowflake/snowflake-arctic-embed-s`` — local ONNX transformer
+   (no PyTorch). The only tier ``auto`` selects: measured on this project's own
+   store it matched keyword search on ordinary queries and beat it on paraphrased
+   ones, which is what the embedding half of recall is for.
+2. **model2vec** ``potion-retrieval-32M`` — local static token-lookup model (no
+   transformer). Explicit opt-in only (``TRACE_EMBEDDING_BACKEND=model2vec``):
+   on the benchmark store the static tier ranked below keyword search on
+   ordinary queries and showed no significant gain on paraphrased ones.
+3. **OpenAI** ``text-embedding-3-small`` — cloud; EXPLICIT opt-in only. A custom
+   ``base_url`` points this at any OpenAI-compatible local server (Ollama / vLLM /
+   LM Studio / text-embeddings-inference) — a fully-local bring-your-own path
+4. **None** — no embeddings, fall through to BM25 matching
+
+Local-first auto-selection: fastembed (if pkg) → None (BM25 alone).
+OpenAI is never auto-selected from a mere key — cloud egress is opt-in
+(``TRACE_EMBEDDING_BACKEND=openai``).
+
+Queries and documents are encoded separately (``embed_query`` vs ``embed_texts``):
+the fastembed arctic models are trained with an instruction prefix on the query side
+only, which the provider adds. Documents are always embedded as-is.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from trace_mcp.extensions.learn.egress import attest_egress
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from trace_mcp.extensions.learn.config import LearnConfig
+
+logger = logging.getLogger(__name__)
+
+# ── Feature detection ────────────────────────────────────────────────
+# NB: these are module-level imports (not importlib.util.find_spec) on purpose:
+# the optional-backend symbols (AsyncOpenAI, StaticModel) double as the patch
+# targets the provider unit tests mock, so they must exist as module attributes.
+
+try:
+    import numpy as _np  # noqa: F401  # pyright: ignore[reportUnusedImport]  (runtime probe)
+
+    _HAS_NUMPY = True
+except ImportError:  # pragma: no cover
+    _HAS_NUMPY = False
+
+try:
+    from openai import AsyncOpenAI  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+    _HAS_OPENAI = True
+except ImportError:  # pragma: no cover
+    _HAS_OPENAI = False
+
+try:
+    from model2vec import StaticModel  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+    _HAS_MODEL2VEC = True
+except ImportError:  # pragma: no cover
+    _HAS_MODEL2VEC = False
+
+try:
+    from fastembed import TextEmbedding  # noqa: F401  # pyright: ignore[reportMissingImports,reportUnusedImport]
+
+    _HAS_FASTEMBED = True
+except ImportError:  # pragma: no cover
+    TextEmbedding = None  # patch target must exist as a module attr even when fastembed is absent
+    _HAS_FASTEMBED = False
+
+
+# ── Curated fastembed model allowlist (local-strong tier) ────────────────
+# Small, permissively-licensed (Apache-2.0/MIT) transformers that ship as
+# quantized int8 ONNX (no PyTorch), run offline after a one-time model download,
+# and produce compact vectors. Selected via ``TRACE_EMBEDDING_MODEL``. A model
+# NOT listed here is still usable (with a warning) but its license and embedding
+# dimension are the user's responsibility. Fully-arbitrary, TRACE-managed custom
+# models are a deliberately deferred future plan (see docs/embeddings.md).
+# arctic-embed models expect this instruction on the QUERY side only (model card).
+# Measured on one 352-learning store with 100 session-description queries: MRR 0.33
+# with bare queries, 0.44 with the prefix.
+ARCTIC_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+
+FASTEMBED_ALLOWLIST: dict[str, dict[str, Any]] = {
+    "snowflake/snowflake-arctic-embed-s": {"dim": 384, "license": "Apache-2.0", "query_prefix": ARCTIC_QUERY_PREFIX},
+    "snowflake/snowflake-arctic-embed-m": {"dim": 768, "license": "Apache-2.0", "query_prefix": ARCTIC_QUERY_PREFIX},
+    "BAAI/bge-small-en-v1.5": {"dim": 384, "license": "MIT"},
+    "BAAI/bge-base-en-v1.5": {"dim": 768, "license": "MIT"},
+}
+DEFAULT_FASTEMBED_MODEL = "snowflake/snowflake-arctic-embed-s"
+# The retrieval fine-tune of the potion family: the same static token-lookup mechanism
+# as potion-base-8M, 512-dim vectors, about 130 MB on disk against 30 MB. Chosen for
+# measured ranking quality on this project's own store (see the changelog).
+DEFAULT_MODEL2VEC_MODEL = "minishlab/potion-retrieval-32M"
+
+
+# ── Provider protocol ────────────────────────────────────────────────
+
+
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    """Interface for embedding generation backends."""
+
+    model_name: str
+
+    @property
+    def dimensions(self) -> int:
+        """Embedding vector dimensionality. Read-only so providers may
+        compute it lazily without violating Protocol invariance;
+        a concrete ``int`` attribute also satisfies this."""
+        ...
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings for a batch of documents (stored learnings)."""
+        ...
+
+    async def embed_query(self, text: str) -> list[float]:
+        """Embed one search query.
+
+        Required of every provider. Models trained with a query-side instruction add
+        it here; the default is the symmetric single-document embedding, so a class
+        that subclasses this Protocol explicitly inherits working behaviour.
+        """
+        return (await self.embed_texts([text]))[0]
+
+
+@runtime_checkable
+class DocumentEmbedder(Protocol):
+    """The minimum the ``embed_query`` helper needs: something that embeds documents."""
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]: ...
+
+
+async def embed_query(provider: DocumentEmbedder, text: str) -> list[float]:
+    """Embed *text* as a QUERY through *provider*.
+
+    Providers implement ``embed_query`` (query-side encoding). An object that
+    offers only ``embed_texts`` gets the symmetric single-document embedding.
+    No coroutine detection: ``MagicMock``/``AsyncMock`` doubles expose every
+    attribute, so a double must set ``embed_query`` explicitly.
+    """
+    fn = getattr(provider, "embed_query", None)
+    if fn is None:
+        return (await provider.embed_texts([text]))[0]
+    return await fn(text)
+
+
+# ── OpenAI provider ──────────────────────────────────────────────────
+
+
+class OpenAIEmbeddingProvider:
+    """Generate embeddings via OpenAI API (``text-embedding-3-small``)."""
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "text-embedding-3-small",
+        dimensions: int = 0,
+        base_url: str | None = None,
+        key_hint: str | None = None,
+    ) -> None:
+        if not _HAS_OPENAI:
+            raise RuntimeError("openai package is required for OpenAI embeddings")
+        from openai import AsyncOpenAI
+
+        # A custom base_url points this backend at any OpenAI-compatible local
+        # server (Ollama / LM Studio / text-embeddings-inference / vLLM) — a
+        # fully-local, bring-your-own-model path that keeps TRACE out of weight
+        # and license management. Omitted entirely when unset so the SDK default
+        # (api.openai.com, or the SDK's own OPENAI_BASE_URL handling) applies.
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self._client = AsyncOpenAI(**client_kwargs)
+        self.model_name = model
+        self.dimensions = dimensions  # 0 = use model default
+        self.base_url = base_url
+        self._api_key = api_key
+        self._key_hint = key_hint or "Check the OpenAI key in this project's .env and restart the MCP server."
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        # Egress-as-provenance: record the fact of the cloud call before making
+        # it. Raising here is caught by the callers' strict/permissive handling
+        # (e.g. _embed_learnings) like any provider failure — and no content
+        # leaves the machine. This is the single true egress point for
+        # embeddings, so the attestation lives here rather than in each caller;
+        # project/purpose are unknown at this layer (base_url set = the call
+        # targets a user-configured, possibly local, OpenAI-compatible server).
+        attest_egress(
+            provider="openai",
+            endpoint="embeddings",
+            model=self.model_name,
+            purpose="embedding",
+            content_class="learning-or-query-text",
+            item_count=len(texts),
+            base_url=self.base_url,
+        )
+        kwargs: dict = {"model": self.model_name, "input": texts}
+        if self.dimensions > 0:
+            kwargs["dimensions"] = self.dimensions
+        try:
+            response = await self._client.embeddings.create(**kwargs)
+        except Exception as exc:
+            from trace_mcp.extensions.learn.config import ApiKeyRejectedError, is_auth_error, redact_key
+
+            if not is_auth_error(exc):
+                raise
+            # A refused credential is a configuration failure, not a provider
+            # hiccup: re-raised as its own type so callers report the file to
+            # fix instead of counting it as one more retryable embedding error.
+            detail = redact_key(str(exc), self._api_key)
+            raise ApiKeyRejectedError(
+                f"OpenAI REJECTED the API key while embedding (model={self.model_name}): {detail}. {self._key_hint}"
+            ) from exc
+        return [item.embedding for item in response.data]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return (await self.embed_texts([text]))[0]
+
+
+# ── model2vec provider ───────────────────────────────────────────────
+
+
+class Model2VecEmbeddingProvider:
+    """Generate embeddings locally via model2vec (default ``potion-retrieval-32M``)."""
+
+    def __init__(self, model_name: str = DEFAULT_MODEL2VEC_MODEL) -> None:
+        if not _HAS_MODEL2VEC:
+            raise RuntimeError("model2vec package is required for local embeddings")
+        self.model_name = model_name
+        # The StaticModel is loaded LAZILY on first embedding use, not
+        # at construction. The provider is built in the extension's
+        # register() at server startup; eager loading meant every concurrent
+        # session held a resident model (large idle RAM) and paid a
+        # cold-start latency (a root cause of E2E test flakiness).
+        self._model: Any = None
+
+    def _get_model(self) -> Any:
+        """Load and cache the StaticModel on first use (lazy load)."""
+        if self._model is None:
+            from model2vec import StaticModel
+
+            self._model = StaticModel.from_pretrained(self.model_name)
+        return self._model
+
+    @property
+    def dimensions(self) -> int:
+        return int(self._get_model().dim)
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        # model2vec encode is sync and <0.1 ms per query — safe inline.
+        embeddings = self._get_model().encode(texts)
+        return [emb.tolist() for emb in embeddings]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return (await self.embed_texts([text]))[0]
+
+
+# ── fastembed provider (local ONNX transformer, no PyTorch) ──────────────
+
+
+def fastembed_cache_dir() -> Path:
+    """Where fastembed keeps its model files. Pure.
+
+    Left to itself fastembed uses the per-user temporary directory, which the operating
+    system may clear; the next recall then downloads the model again (about 130 MB) or, with
+    no network, fails. TRACE therefore pins the cache under its own home. Precedence:
+    ``TRACE_MODEL_CACHE_DIR``, then fastembed's own ``FASTEMBED_CACHE_PATH``, then
+    ``~/.trace/models``. The directory is created by fastembed on first use.
+    """
+    override = os.environ.get("TRACE_MODEL_CACHE_DIR") or os.environ.get("FASTEMBED_CACHE_PATH")
+    return Path(override) if override else Path.home() / ".trace" / "models"
+
+
+class FastEmbedEmbeddingProvider:
+    """Generate embeddings locally via fastembed (ONNX Runtime, no PyTorch).
+
+    The "local-strong" tier: a small permissive transformer (default
+    ``snowflake/snowflake-arctic-embed-s``, Apache-2.0, 384-dim) that is markedly
+    stronger at retrieval than the static model2vec tier while staying condensed
+    and offline-capable. Weights are downloaded once as quantized int8 ONNX and
+    cached by fastembed; no API key and no third-party egress of user content.
+    """
+
+    def __init__(self, model_name: str = DEFAULT_FASTEMBED_MODEL) -> None:
+        if not _HAS_FASTEMBED:
+            raise RuntimeError("fastembed package is required for fastembed embeddings")
+        self.model_name = model_name
+        meta = FASTEMBED_ALLOWLIST.get(model_name, {})
+        self.dimensions = int(meta.get("dim", 0))  # 0 = unknown (non-allowlisted model)
+        self._query_prefix: str = str(meta.get("query_prefix", ""))
+        # Lazy-load the ONNX model on first use (mirrors the model2vec provider):
+        # avoids a resident model + cold-start per idle session at server startup.
+        self._model: Any = None
+
+    def _get_model(self) -> Any:
+        """Load and cache the fastembed model on first use (lazy load).
+
+        Side effects: the first call on a machine downloads the model files (about 130 MB
+        for the default model) into ``fastembed_cache_dir()``.
+        """
+        if self._model is None:
+            assert TextEmbedding is not None  # guaranteed by _HAS_FASTEMBED gate in __init__
+            self._model = TextEmbedding(model_name=self.model_name, cache_dir=str(fastembed_cache_dir()))
+        return self._model
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        # fastembed's ONNX encode is sync CPU work (tens of ms per short text);
+        # fast enough inline for the small per-project stores TRACE holds.
+        # ``.embed`` returns a generator of numpy arrays.
+        model = self._get_model()
+        return [[float(x) for x in vec] for vec in model.embed(list(texts))]
+
+    async def embed_query(self, text: str) -> list[float]:
+        # Query-side instruction for models that were trained with one (see ARCTIC_QUERY_PREFIX).
+        return (await self.embed_texts([self._query_prefix + text]))[0]
+
+
+def _select_fastembed_model(requested: str) -> str:
+    """Resolve the fastembed model id to load.
+
+    - An allowlisted (vetted, permissive) model id is used as-is.
+    - Any other explicit HF-style id (``org/model``) is honored with a warning —
+      its license and embedding dimension are the user's responsibility.
+    - Otherwise (e.g. the OpenAI default model string is still in place) the
+      permissive default (``snowflake/snowflake-arctic-embed-s``) is used.
+    """
+    if requested in FASTEMBED_ALLOWLIST:
+        return requested
+    if requested and requested != "text-embedding-3-small" and "/" in requested:
+        logger.warning(
+            "fastembed model %r is not in the vetted allowlist; using it anyway — "
+            "verify its license and embedding dimension yourself.",
+            requested,
+        )
+        return requested
+    return DEFAULT_FASTEMBED_MODEL
+
+
+# ── Auto-selection ───────────────────────────────────────────────────
+
+
+def get_embedding_provider(config: LearnConfig | None = None) -> EmbeddingProvider | None:
+    """Return the best available embedding provider, or ``None``.
+
+    Local-first selection order (``auto`` mode):
+    1. fastembed — if ``fastembed`` installed (local ONNX, no key, no egress).
+    2. None — fall through to BM25 matching alone. The static model2vec tier is
+       never auto-selected (it is available on explicit request); on the
+       benchmark store it ranked below BM25 alone.
+
+    OpenAI is **never** auto-selected: a mere API key must not route embedding
+    content off-machine. Cloud egress requires an explicit
+    ``TRACE_EMBEDDING_BACKEND=openai`` (which then honors a custom ``base_url``
+    for OpenAI-compatible local servers).
+    """
+    if config is None:
+        from trace_mcp.extensions.learn.config import load_config
+
+        config = load_config()
+
+    from trace_mcp.extensions.learn.config import LLMFallbackError
+
+    backend = config.embedding_backend
+
+    # Belt-and-suspenders for the unified kill switch: a local-only config must
+    # never reach the cloud provider even if backend=="openai". load_config()
+    # already downgrades this, but library callers / tests may build a
+    # LearnConfig directly and bypass that enforcement.
+    if config.local_only and backend == "openai":
+        backend = "auto"
+
+    if backend == "none":
+        return None
+
+    # --- fastembed (local ONNX transformer, "local-strong" tier) ---
+    if backend in ("fastembed", "auto") and _HAS_FASTEMBED:
+        fe_model = _select_fastembed_model(config.embedding_model)
+        logger.info("Using fastembed embedding provider (model=%s)", fe_model)
+        return FastEmbedEmbeddingProvider(model_name=fe_model)
+    if backend == "fastembed":
+        msg = "fastembed embeddings requested (TRACE_EMBEDDING_BACKEND=fastembed) but package not installed"
+        if config.strict_llm:
+            logger.error("%s. Refusing to fall back.", msg)
+            raise LLMFallbackError(
+                f"{msg}. Install with: pip install 'trace-mcp[local-embed]'. Or set TRACE_EMBEDDING_BACKEND=auto."
+            )
+        logger.warning("%s. Falling back to next available backend.", msg)
+
+    # --- model2vec (local static): explicit request only ---
+    if backend == "model2vec" and _HAS_MODEL2VEC:
+        # Use config model if it looks like a model2vec model, otherwise default
+        m2v_model = config.embedding_model if "potion" in config.embedding_model else DEFAULT_MODEL2VEC_MODEL
+        logger.info("Using model2vec embedding provider (model=%s)", m2v_model)
+        return Model2VecEmbeddingProvider(model_name=m2v_model)
+    if backend == "model2vec":
+        msg = "model2vec embeddings requested but package not installed"
+        if config.strict_llm:
+            logger.error("%s. Refusing to fall back.", msg)
+            raise LLMFallbackError(f"{msg}. Install with: pip install model2vec. Or set TRACE_EMBEDDING_BACKEND=auto.")
+        logger.warning("%s. Falling back.", msg)
+
+    # --- OpenAI (cloud) — EXPLICIT opt-in only; never auto-selected ---
+    # Local-first posture: a mere OPENAI_API_KEY on the machine must NOT route
+    # embedding content to a third party. Cloud egress requires an explicit
+    # TRACE_EMBEDDING_BACKEND=openai (which honors base_url for local, OpenAI-
+    # compatible servers). This is why "auto" above never reaches OpenAI.
+    if backend == "openai" and _HAS_OPENAI and config.openai_api_key:
+        logger.info("Using OpenAI embedding provider (model=%s)", config.embedding_model)
+        return OpenAIEmbeddingProvider(
+            api_key=config.openai_api_key,
+            model=config.embedding_model,
+            base_url=config.embedding_base_url,
+            key_hint=(
+                f"The key in use came from {config.key_origin()}. Replace it there and restart the MCP "
+                f"server. Searched, in order: {config.key_search_description()}."
+            ),
+        )
+    if backend == "openai":
+        # User explicitly asked for OpenAI embeddings but they're unavailable.
+        msg = (
+            f"OpenAI embeddings requested (TRACE_EMBEDDING_BACKEND=openai) but "
+            f"unavailable: openai_package={_HAS_OPENAI}, api_key_present="
+            f"{bool(config.openai_api_key)}. Searched for a key in: {config.key_search_description()}."
+        )
+        if config.strict_llm:
+            logger.error("%s Refusing to fall back.", msg)
+            raise LLMFallbackError(
+                f"{msg} Install 'openai' and set OPENAI_API_KEY, or set "
+                f"TRACE_EMBEDDING_BACKEND=auto/fastembed/model2vec to use a local backend."
+            )
+        logger.warning("%s Falling back to next available backend.", msg)
+
+    logger.info("No embedding provider available — falling through to BM25 matching")
+    return None
+
+
+# ── Cosine similarity utilities ──────────────────────────────────────
+
+
+def cosine_similarity_matrix(query_vec: list[float], matrix: np.ndarray) -> np.ndarray:
+    """Cosine similarity between *query_vec* and every row of *matrix*.
+
+    Returns an array of shape ``(n,)`` with values in ``[-1, 1]``.
+    Sub-millisecond for 5 000 × 768 on any modern CPU.
+    """
+    if not _HAS_NUMPY:
+        raise RuntimeError("numpy is required for embedding search")
+    import numpy as np
+
+    q = np.asarray(query_vec, dtype=np.float32)
+    q_norm = float(np.linalg.norm(q))
+    if q_norm == 0.0:
+        return np.zeros(matrix.shape[0], dtype=np.float32)
+    q = q / q_norm
+
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0.0, 1.0, norms)  # avoid div-by-zero
+    normed = matrix / norms
+
+    return normed @ q

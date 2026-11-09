@@ -1,0 +1,37 @@
+{
+  "at": "2026-11-09T05:53:06.538234Z",
+  "synthetic_only": true,
+  "project_local_hook": true,
+  "inline_hook_injection": false,
+  "hook_trust_bypass": false,
+  "results": [
+    {
+      "scenario": "installed_hook_blocks_generated_edit",
+      "passed": true,
+      "hook_checks": 1,
+      "file_changed": false,
+      "expected_change": false
+    },
+    {
+      "scenario": "superseded_binding_blocks_in_new_session",
+      "passed": true,
+      "hook_checks": 1,
+      "file_changed": false,
+      "expected_change": false
+    },
+    {
+      "scenario": "explicit_rebinding_resumes_in_new_session",
+      "passed": true,
+      "hook_checks": 1,
+      "file_changed": true,
+      "expected_change": true
+    },
+    {
+      "scenario": "withdrawal_blocks_in_new_session",
+      "passed": true,
+      "hook_checks": 1,
+      "file_changed": false,
+      "expected_change": false
+    }
+  ]
+}

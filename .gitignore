@@ -5,3 +5,7 @@ build/
 dist/
 .judgment/
 .pytest_cache/
+
+.env
+.env.*
+!.env.example

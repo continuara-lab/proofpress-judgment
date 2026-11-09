@@ -30,12 +30,12 @@ fi
 judgment_bin="$("$judgment_uv" tool dir --bin)"
 if [[ $# -eq 0 ]]; then
   if [[ -e .judgment ]]; then
-    set -- --all
+    set -- --agents codex --confirm --upgrade
   else
-    set -- --all --owner "human:$(id -un)"
+    set -- --agents codex --owner "human:$(id -un)" --confirm
   fi
 fi
-"$judgment_bin/judgment" setup "$@"
+"$judgment_bin/proofpress" onboard "$@"
 case ":$PATH:" in
   *":$judgment_bin:"*) ;;
   *) printf '\nAdd the CLI to your shell PATH: export PATH="%s:$PATH"\n' "$judgment_bin" ;;

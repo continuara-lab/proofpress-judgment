@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      # All three static gates run on the FULL tree (src + tests + scripts) —
+      # matching CONTRIBUTING and pyrightconfig.json — and the tree is clean
+      # under each, so a gate cannot silently diverge from the documented command.
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (pyright)
+        run: uv run pyright
+
+      - name: Core/extension boundary invariant (governance ADR 003)
+        run: uv run pytest tests/test_v041_core_extension_boundary.py -q -p no:cov
+
+      - name: Invariant registry guard (docs/INVARIANTS.md)
+        run: uv run pytest tests/test_invariants.py -q -p no:cov
+
+      - name: Tests (with coverage)
+        # COVERAGE_PROCESS_START points the spawned MCP server (test_e2e_server.py
+        # runs `python -m trace_mcp.server` as a subprocess) at the coverage config
+        # so the child self-measures via src/sitecustomize.py ->
+        # coverage.process_startup(). With `[tool.coverage.run] parallel = true`
+        # each process writes its own `.coverage.<id>` file; pytest-cov combines
+        # them at the end of the run, so server.py is reported accurately (~60%)
+        # instead of the misleading in-process ~34%/0% the subprocess would yield.
+        # (Verified locally: server.py reads 0% with COVERAGE_PROCESS_START unset,
+        # 60% with it set — the wiring is load-bearing.)
+        env:
+          COVERAGE_PROCESS_START: pyproject.toml
+        run: |
+          uv run coverage erase
+          uv run pytest --cov=trace_mcp --cov-report=term-missing --cov-report=xml --tb=short
+
+      - name: Upload coverage to Codecov (non-blocking)
+        # Optional: uploads coverage.xml if a CODECOV_TOKEN secret is configured.
+        # `continue-on-error` + `fail_ci_if_error: false` keep CI green even when
+        # the token is absent (e.g. forks), so coverage upload never gates the build.
+        if: matrix.python-version == '3.13'
+        continue-on-error: true
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  package:
+    # Build and verify the REAL sdist/wheel on every PR — not only at release.
+    # A wheel can ship missing required runtime files (e.g. py.typed + adapter
+    # assets) when the build path runs only on tag and never in PR CI. Shares
+    # the exact composite action release.yml uses, so the two cannot diverge.
+    name: Build & verify distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Build & verify distribution
+        uses: ./.github/actions/build-and-verify-dist

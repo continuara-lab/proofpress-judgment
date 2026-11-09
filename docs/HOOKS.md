@@ -1,9 +1,11 @@
 # Enforce specific constraints
 
-**Status: implementation plan, not installed functionality.** The current skill
+**Status: original design plan.** A bounded implementation now exists in
+[runtime checks](RUNTIME.md); [host research](HOST-HOOKS.md) records integration
+options and verification limits. It is not installed by skill setup. The current skill
 supplies advice. `context` and `check` manage eligibility; neither intercepts
-agent tool calls. Nothing in this release guarantees that a model follows a
-judgment.
+agent tool calls. The runtime prototype can deny covered actions; model assessments still do not
+guarantee substantive correctness.
 
 ## Start with one coding constraint
 

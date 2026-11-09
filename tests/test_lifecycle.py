@@ -238,7 +238,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(output.count("\n---\n"), 1)
 
     def cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "judgment_layer.cli", "--workspace", str(self.root), *args],
+        return subprocess.run([sys.executable, "-m", "judgment_layer.cli", "--workspace", str(self.root), *args, "--json"],
                               capture_output=True, text=True)
 
     def test_cli_manual_review_and_check_exit_codes(self):
@@ -274,7 +274,7 @@ class LifecycleTests(unittest.TestCase):
         item = self.capture(doc)
         self.assertEqual(item["state"], "proposed")
         self.assertEqual(item["record"]["extensions"]["trace"]["historical_disposition"], "accepted")
-        self.assertEqual(item["record"]["provenance"]["decision_maker"], "agent:assistant")
+        self.assertEqual(item["record"]["provenance"]["judged_by"], "agent:assistant")
         self.assertEqual(self.context()["judgments"], [])
         self.review(item)
         self.assertEqual(len(self.context()["judgments"]), 1)

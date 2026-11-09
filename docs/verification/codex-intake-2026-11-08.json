@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-08",
+  "synthetic_only": true,
+  "host": "codex-cli 0.153.4",
+  "flow": "onboarding -> history scan -> local import -> real model extraction",
+  "discovered_sessions": 1,
+  "imported_messages": 2,
+  "extracted_candidates": 1,
+  "states": [
+    "proposed"
+  ],
+  "human_admissions": 0,
+  "runtime_bindings": 0,
+  "ledger_audit": true,
+  "boundary": "One synthetic integration smoke test. No real user history was imported and no extraction-quality benchmark was run."
+}

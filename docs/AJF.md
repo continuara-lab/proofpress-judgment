@@ -1,4 +1,4 @@
-# Agent Judgment Format — 0.1-draft
+# Agent Judgment Format — 0.3-draft
 
 AJF is portable judgment content. The CLI completes `ajf_version`, a generated
 `id`, `version: 1` and empty `links` when capturing a candidate. `validate` accepts
@@ -18,7 +18,7 @@ an exact `revises` link. Capture does not infer reasons, origin or timestamps.
 Kinds: `conditional_guidance`, `case`, `hypothesis`, `constraint`. Origin is
 separate: `human_guidance`, `human_judgment`, `agent_judgment`, `agent_assumption`,
 `unknown`. A human can record an agent's judgment and an agent can record human
-guidance; recorder is not decision-maker. Unknown origin or missing rationale is
+guidance; recorder is not necessarily the person or agent who made the judgment. Unknown origin or missing rationale is
 capturable but cannot be admitted under the v0 default. The human must create a
 new supported revision rather than invent missing information.
 
@@ -38,3 +38,18 @@ recorded judgment; an agent must never invoke owner actions on a real candidate.
 JSON is the source of truth. Markdown rendering uses JSON-quoted YAML scalar
 values and full JSON; editing the generated Markdown does not update the store.
 New AJF semantics are not a new release of ADF or an in-place migration of it.
+
+Version 0.2 uses `provenance.judged_by`. Version 0.1 with `decision_maker`
+remains readable and verifiable. Existing records and digests are never rewritten;
+new examples and captures use 0.2. A revised 0.1 input may stay on 0.1, or explicitly
+switch version and attribution field together.
+
+Optional `judgment.assertion` has a `key` and a scalar `value`. This provides an
+explicit shared subject for deterministic conflict checks; it does not turn prose
+into a verifier or grant authority. Contradictory assertions in overlapping scopes
+are flagged and pause admission/reuse until resolved. Natural-language conflicts
+need separate optional assessment. See [runtime checks](RUNTIME.md).
+
+AJF 0.3 adds contextual fields, alternatives, expected outcomes and judgment
+polarity. Outcome observations are separate append-only events. See [intake and
+observations](INTAKE.md). Existing 0.1/0.2 digests are never rewritten.

@@ -5,11 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "judgment-layer"
 version = "0.1.0a5"
-description = "Local, manual-first governance for human and agent judgments"
+description = "Carry human and agent judgment into later work with local review, reuse and lifecycle controls"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = ["jsonschema>=4.23,<5"]
+
+[project.urls]
+Homepage = "https://proofpress.dev"
+Repository = "https://github.com/continuara-lab/proofpress-judgment"
+Documentation = "https://github.com/continuara-lab/proofpress-judgment#readme"
+Issues = "https://github.com/continuara-lab/proofpress-judgment/issues"
 
 [project.scripts]
 proofpress = "judgment_layer.cli:main"

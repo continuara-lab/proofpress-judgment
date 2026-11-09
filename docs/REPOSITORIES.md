@@ -1,41 +1,30 @@
 # Proofpress repository map
 
-Proofpress has one product direction: **Your judgment. Built into your agents.**
-There are currently two implementations. They share ideas, not interchangeable
-commands or stores.
+**Your judgment. Built into your agents.** Proofpress has one product direction
+and two implementations with distinct installation commands and stores.
 
-| Repository | Use it for | Current entry point |
+| Repository | Use it for | Start here |
 | --- | --- | --- |
-| [`continuara-lab/judgment-layer`](https://github.com/continuara-lab/judgment-layer) | The personal Proofpress CLI: local capture, review, reuse, revision and bound hooks | This README's installer; `proofpress review` |
-| [`chenmingtang830/proofpress`](https://github.com/chenmingtang830/proofpress) | The existing Proofpress MCP/server implementation, current integrations and research | That repository's quick start and connection guides |
-| [`proofpress.dev`](https://proofpress.dev) | Product narrative, examples and research links | Product overview and currently published setup path |
+| [Proofpress Judgment](https://github.com/continuara-lab/proofpress-judgment) | Personal CLI: capture, review, reuse, revision and bound hooks | [Quick start](../README.md#quick-start) |
+| [Original Proofpress](https://github.com/chenmingtang830/proofpress) | Existing MCP/server integrations, services and research | Its quick start and connection guides |
+| [proofpress.dev](https://proofpress.dev) | Product examples and research | Product overview |
 
-The public repository's `proofpress quickstart --ui` starts its existing demo.
-It does not install this CLI's judgment workflow. This CLI's Python distribution
-is named `judgment-layer`, but both implementations expose `proofpress`; use
-separate environments while evaluating them. Existing stores are not migrated by
-changing a README or installing a different package.
+Start with **Proofpress Judgment** to try the local judgment workflow with Codex,
+Claude Code or Cursor. Existing MCP/server users should continue using their
+assigned endpoints and the original repository's instructions.
 
-The local CLI is a private alpha. A public website link cannot grant repository
-access, and an anonymous curl command cannot download private code. Existing
-Apache-2.0 licensing does not itself make a repository publicly readable.
+The original `proofpress quickstart --ui` starts its existing demo. It does not
+install this CLI. Both implementations expose `proofpress`, so use separate
+environments when evaluating both. The new CLI's Python distribution is still
+named `judgment-layer`; the repository and public project name are
+`proofpress-judgment`. Changing a package or README does not migrate old stores.
 
-## Recommended transition
+## Website and documentation links
 
-Keep the local CLI independent while its daily workflow is being tested. Preserve
-existing deployments, integration docs and study URLs in the public repository.
+The website's main GitHub, Docs and CLI install links should lead to Proofpress
+Judgment. Research-result links should continue leading to the original repository,
+where the studies live. Keep product and research repository URLs separate.
 
-While the CLI remains private, the website should distinguish “Try the existing
-demo” from “Request CLI alpha access.” Once the CLI is publicly accessible, its
-primary install and GitHub links can point here. Keep evidence links pointing to
-the repository that actually contains the studies. In the website source, the
-primary GitHub/Docs links and the study URLs currently share `repoUrl`; split
-those destinations before changing the primary product link, rather than replacing
-every occurrence of the old repository address.
-
-A short notice in the public README can identify the existing implementation and
-the new CLI trial without implying migration or archive status. Do not rename or
-archive either repository merely to make the branding match.
-
-This is a recommended transition, not a declaration that the website, repository
-visibility, deployed services or public README have been changed by this document.
+The original README should point new CLI users here while retaining its working
+installation, integration and research documentation. Existing deployments and
+study URLs remain supported; neither repository is archived by this transition.

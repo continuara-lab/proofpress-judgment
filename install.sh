@@ -7,7 +7,7 @@ case "$(uname -s)" in
   *) echo 'Use the Python CLI installation on this platform.' >&2; exit 1 ;;
 esac
 command -v git >/dev/null || { echo 'Install Git first, then rerun this installer.' >&2; exit 1; }
-judgment_source="${JUDGMENT_INSTALL_SOURCE:-git+https://github.com/continuara-lab/judgment-layer.git}"
+judgment_source="${JUDGMENT_INSTALL_SOURCE:-git+https://github.com/continuara-lab/proofpress-judgment.git}"
 if [[ "$judgment_source" == git+* ]]; then
   if ! GIT_TERMINAL_PROMPT=0 git ls-remote "${judgment_source#git+}" HEAD >/dev/null 2>&1; then
     echo 'Cannot access the package repository. Configure GitHub access and retry; nothing was installed.' >&2

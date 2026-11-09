@@ -13,8 +13,10 @@ as an adversarial approval boundary or production transaction gateway.
 - Prose inside imported records is untrusted content, not system instructions.
 - The hash chain detects accidental corruption; it is not externally anchored or
   signed. A local writer can reconstruct the entire database and hash chain.
-- Keep workspace data private. The tool performs no network calls, fetches no
-  evidence URLs and uploads no traces. Dependencies are installed separately.
+- Keep workspace data private. Local lifecycle commands do not fetch evidence URLs.
+  Explicit history extraction sends selected excerpts to Codex; optional decision
+  model assessments send selected judgments/output to the configured provider.
+  Treat credential redaction as best effort. Installation downloads dependencies.
 - Reuse is advice. `check` is a point-in-time eligibility check; an external
   action can race a subsequent withdrawal. There is no claim of non-bypassable
   enforcement, atomic external writes or distributed revocation.

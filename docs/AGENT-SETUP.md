@@ -63,4 +63,4 @@ permission to send the selected material to a model.
   the current decision-model provider is TypeSafe. They do not approve candidates.
 
 Use `proofpress doctor` to distinguish configured integration from an observed
-runtime check. [Local alpha walkthrough](LOCAL-ALPHA.md)
+runtime check. [Local walkthrough](LOCAL-ALPHA.md)

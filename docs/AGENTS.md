@@ -10,7 +10,7 @@ files while retaining edited files and the judgment store.
 `proofpress hooks install --host codex` previews a real project hook. Add
 `--confirm`, restart Codex and review `/hooks` in the host. Claude Code registration
 is also available. Skills for the other agents remain guidance-only integrations.
-[Local alpha workflow](LOCAL-ALPHA.md).
+[Local workflow](LOCAL-ALPHA.md).
 
 # Connect your agent
 
@@ -78,8 +78,7 @@ command in an isolated tool environment. If `proofpress` is not found, run
 `uv tool update-shell`, then open a new terminal. A checkout can instead use the
 [development install](CLI.md#install-from-a-checkout).
 
-For a private repository, Git must already have authenticated access. Setup does
-not read tokens or configure credentials. No npm/PyPI package or marketplace
+The repository is public. Setup does not read tokens or configure credentials. No npm/PyPI package or marketplace
 listing has been published. Installation downloads the code and dependencies;
 normal local commands work offline.
 

@@ -165,11 +165,14 @@ interpretation of meaning, context or exceptions.
 
 - **Review a candidate.** Assess whether its evidence and scope meet your project's review criteria, then give you an approval recommendation.
 - **Check for conflicts.** Assess whether a proposed judgment contradicts approved guidance under overlapping conditions.
-- **Check text before writing.** When you enable a model check in a hook, Jev can review the full text of a proposed new file against an approved judgment. For example, pause a report that claims tests passed when they have not been run.
 
-You control admission and choose which actions get a hook check. Local path
-and condition checks work without a key.
-[Set up Jev](docs/RUNTIME.md#set-up-jev) · [Environment template](.env.example)
+For example, “cache all search results” needs review if approved guidance
+requires urgent alerts to use live data. Jev can assess that overlap and
+recommend narrowing the judgment.
+
+You decide which judgments to admit. Local path and condition checks work
+without a key.
+[Set up Jev](docs/RUNTIME.md#set-up-jev) · [Supported hook checks](docs/RUNTIME.md#what-the-hook-checks) · [Environment template](.env.example)
 
 ## Documentation
 

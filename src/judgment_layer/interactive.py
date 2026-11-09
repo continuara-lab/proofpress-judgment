@@ -85,7 +85,19 @@ def review_preview(item, enforcement):
     lines += [color('accent', 'Source')]+['  '+x for x in r['provenance']['source_refs']]
     if 'deterministic_issues' in item:
         lines += [color('accent', 'Admission checks'), '  ' + (' '.join(item['deterministic_issues']) or 'Local checks passed.')]
+        lines += [color('accent', 'Review criteria'), '  ' + item['review_criteria']]
         lines += [color('accent', 'Model advice'), '  ' + review_advice_text(item.get('review_advice'))]
+        advice = item.get('review_advice') or {}
+        assessment = advice.get('assessment', {})
+        probabilities = assessment.get('probabilities', {})
+        if probabilities:
+            labels = {'supported': 'Evidence supported', 'unknown': 'Needs human judgment',
+                      'scope_too_broad': 'Scope too broad', 'unsupported_evidence': 'Evidence unsupported',
+                      'criteria_unmet': 'Criteria unmet'}
+            choice = max(probabilities, key=probabilities.get)
+            lines += ['  Highest model choice: ' + labels.get(choice, choice) + f" ({probabilities[choice]:.0%}).",
+                      f"  Model confidence: {assessment['confidence']:.0%}. Thresholds: 95% choice, 90% confidence.",
+                      '  This check returns a choice and scores; no written explanation was requested.']
         lines += [color('accent', 'Approval'), '  You decide whether to approve this revision.']
     lines += [color('accent', 'Proposed enforcement')]
     if enforcement:
@@ -101,7 +113,7 @@ def review_preview(item, enforcement):
 
 
 def interactive_review(workspace, jid, enforcement=None, input_fn=input):
-    from .review_policy import admission_issues, current_advice, review_assist
+    from .review_policy import DEFAULT_CRITERIA, admission_issues, current_advice, review_assist, review_policy
     while True:
         s = Store(workspace)
         try:
@@ -109,16 +121,17 @@ def interactive_review(workspace, jid, enforcement=None, input_fn=input):
                 item = s.describe(s.record(jid))
                 item["deterministic_issues"] = admission_issues(s, item["record"])
                 item["review_advice"] = current_advice(s, item["record"])
+                item["review_criteria"] = review_policy(s)["criteria"] or DEFAULT_CRITERIA
                 from .hosts import bindings
                 old_binding=next((b for b in bindings(s) if b['judgment_id']==jid),None)
         finally: s.close()
         print(review_preview(item, enforcement))
         if old_binding:
             print('Existing protection: v'+str(old_binding['version'])+'. Choose Enforcement to review its replacement; approval alone does not upgrade it.')
-        answer = input_fn('[A] Approve'+(' and bind' if enforcement else '')+'  [J] Check evidence  [E] Edit  [H] Enforcement  [R] Reject  [C] Cancel: ').strip().lower()
+        answer = input_fn('[A] Approve'+(' and bind' if enforcement else '')+'  [J] Model assessment  [E] Edit  [H] Enforcement  [R] Reject  [C] Cancel: ').strip().lower()
         if answer in {'c', ''}: return {'review_result': 'Cancelled; no approval made.'}
         if answer == 'j':
-            if input_fn('Send the candidate and any policy-enabled referenced excerpts to TypeSafe? [y/N]: ').strip().lower() == 'y':
+            if input_fn('Run model assessment? This sends the candidate and any policy-enabled referenced excerpts to TypeSafe. [y/N]: ').strip().lower() == 'y':
                 s = Store(workspace)
                 try:
                     review_assist(s, jid, item["digest"])

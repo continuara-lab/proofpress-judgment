@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-PALETTE = {"accent":"5FB3C4", "add":"6FBF8E", "del":"C87E82", "move":"D7B56D", "dim":"ADB0BA"}
+PALETTE = {"accent":"2E8FA3", "add":"6FBF8E", "del":"C87E82", "move":"D7B56D", "dim":"ADB0BA"}
 
 
 def color(role, text):
@@ -36,7 +36,7 @@ def review_advice_text(result):
     if result is None:
         return "Not run for this revision."
     if result.get("status") == "stale":
-        return "Out of date. Run Check evidence again."
+        return "Out of date. Run Model assessment again."
     assessment = result["assessment"]
     labels = {"supported": "Evidence supported", "revise": "Revision suggested", "unknown": "Needs human judgment"}
     reasons = {
@@ -150,12 +150,13 @@ def render_text(command, result):
     if command == "review-assist":
         return "Proofpress · Model advice\n" + review_advice_text(result) + "\nYou decide whether to approve."
     if command == "review-policy":
+        from .review_policy import DEFAULT_CRITERIA
         p = result["review_policy"]
         timing = "After capture and revision" if p["mode"] == "on_capture" else "On request"
         inputs = "Candidate and referenced history excerpts" if p["evidence"] == "referenced_history" else "Candidate record only"
         return "\n".join([color("accent", "Proofpress · Review policy") + f"  v{p['version']}",
                           "Model checks  " + timing, "Model inputs  " + inputs,
-                          "Criteria  " + (p["criteria"] or "Evidence supports the choice and its stated scope."),
+                          "Criteria  " + (p["criteria"] or DEFAULT_CRITERIA),
                           "Approval  Manual"])
     if command == "onboard":
         p = result['capture_policy']
@@ -164,7 +165,8 @@ def render_text(command, result):
         capture = ', '.join(labels[x] for x in triggers) if triggers else 'off'
         timing = 'After capture and revision' if result['review_policy']['mode'] == 'on_capture' else 'On request'
         history = 'Import past Codex, Claude Code or Cursor sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
-        lines = [color('accent', 'Proofpress · ' + ('Setup' if result['status'] == 'preview' else 'Ready')),
+        lines = [color('accent', 'Welcome to Proofpress' if result['status'] == 'preview' else 'Proofpress · Ready'),
+                 'Carry useful judgments from this work into later agent sessions.',
                  color('accent', 'Project') + '  ' + result['project'],
                  color('accent', 'Capture policy') + '  What your agent may save as a proposed judgment.',
                  color('accent', 'Capture') + '  ' + capture + '.',
@@ -175,6 +177,7 @@ def render_text(command, result):
                  color('accent', 'History') + '  ' + history,
                  color('accent', 'Hooks') + '    Setup does not install hooks. Check status with proofpress doctor.',
                  color('accent', 'Change') + '   Run proofpress capture-policy to inspect or proofpress configure to edit.']
+        lines += ['  Capture guidance  ' + item for item in p.get('guidance',[])]
         if result['status'] == 'preview' and not (sys.stdin.isatty() and sys.stdout.isatty()):
             lines.append('To enable: repeat with --owner human:NAME --confirm.')
         if result.get('startup_files'):
@@ -186,7 +189,18 @@ def render_text(command, result):
     if command == "capture-policy":
         p=result['capture_policy']
         labels={'human_judgment':'your judgments','human_correction':'your corrections','agent_judgment':'agent judgments','task_end':'task-end lessons'}
-        return '\n'.join([color('accent','Capture policy')+'  What your agent may propose for review.',color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),color('accent','Review')+'   You approve before reuse.',color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),color('accent','Change')+'   proofpress configure'])
+        lines = [color('accent','Capture policy')+'  What your agent may propose for review.',
+                 color('accent','Version')+'  '+str(p['version']),
+                 color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),
+                 color('accent','Review')+'   You approve before reuse.',
+                 color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),
+                 color('accent','Extraction')+'  '+p['extraction'],
+                 color('accent','Excerpt limit')+'  '+str(p['max_excerpt_chars'])+' characters']
+        lines += [color('accent','Guidance')+'  '+item for item in p.get('guidance',[])]
+        lines.append(color('accent','Change')+'   proofpress configure')
+        if result.get('preview'):
+            lines.append('Preview only. A human can apply with proofpress capture-policy --from FILE --confirm.')
+        return '\n'.join(lines)
     if command == "history" and result.get('project_history'):
         from .history import AGENT_LABELS
         agent = AGENT_LABELS[result["agent"]]

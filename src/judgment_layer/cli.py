@@ -191,7 +191,8 @@ def run(args):
                 selected['triggers']=[] if args.triggers==['none'] else args.triggers
             if args.history is not None:selected['history']=args.history
             if args.extraction is not None:selected['extraction']=args.extraction
-        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup)
+        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup,
+                       getattr(args, 'review_selection', None), getattr(args, 'expected_review_policy', None))
     if args.command == "history" and args.action == "scan":
         from .history import scan
         return scan(args.root,args.project,args.days,args.previews,agent=args.agent)
@@ -309,10 +310,12 @@ def run(args):
                     items.append({'name':r['name'],'version':r['version'],'id':r['id'],'reason':reason or 'applicable'})
                 return {'matches':items,'scope':args.scope}
             if args.command == "capture-policy":
-                from .intake import policy, set_policy
+                from .intake import policy, set_policy, validate_capture_policy
                 changed = any(x is not None for x in (args.triggers,args.history,args.extraction))
                 if args.source and changed:raise JudgmentError('Choose a policy file or CLI options, not both')
-                if args.source:return set_policy(store,load(args.source),args.confirm)
+                if args.source:
+                    proposed=validate_capture_policy(load(args.source))
+                    return set_policy(store,proposed,True) if args.confirm else {'capture_policy':proposed,'preview':True}
                 value = dict(policy(store))
                 if args.triggers is not None:
                     if 'none' in args.triggers and len(args.triggers)>1:raise JudgmentError('none cannot be mixed with other triggers')
@@ -416,7 +419,8 @@ def main(argv=None):
         if args.command == "onboard" and not args.confirm and sys.stdin.isatty() and sys.stdout.isatty() and not args.json and args.format == "text":
             from .interactive import choose_capture_policy
             print(render_text("onboard", result))
-            answer = input("[D] Use shown policy  [C] Customize capture  [Q] Cancel: ").strip().lower()
+            answer = input("[D] Get started  [A] Customize with your agent  [C] Choose capture settings  [Q] Exit: ").strip().lower()
+            customize_with_agent = answer == "a"
             if answer == "c":
                 selection = choose_capture_policy(result["capture_policy"], input)
                 if selection is None:
@@ -427,7 +431,20 @@ def main(argv=None):
                 result = run(args)
                 print(render_text("onboard", result))
                 answer = input("[D] Enable this policy  [Q] Cancel: ").strip().lower()
-            if answer not in {"d", "y"}:
+            if answer not in {"d", "y", "a"}:
+                print("No project changes.")
+                return 0
+            print("How would you like to review judgments?")
+            print("  [1] Review them yourself; ask Jev when needed")
+            print("  [2] Also ask Jev after each capture or revision")
+            print("      Sends each candidate and review criteria to TypeSafe; requires your key.")
+            if result['review_policy']['evidence'] == 'referenced_history':
+                print("      Also sends matching referenced excerpts from imported history.")
+            review_choice = input("Your choice [1]: ").strip()
+            if review_choice not in {"", "1", "2"}:
+                print("No project changes.")
+                return 0
+            if review_choice == "2" and input("Enable automatic model advice for this project? [y/N]: ").strip().lower() != "y":
                 print("No project changes.")
                 return 0
             import getpass
@@ -435,7 +452,11 @@ def main(argv=None):
             if args.owner is None:
                 path = Path(result["workspace"])
                 args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+            args.expected_review_policy = result["review_policy"]
+            args.review_selection = {"mode": "on_capture" if review_choice == "2" else "manual"}
             result = run(args)
+            if customize_with_agent:
+                result["next"] = ["Start a new agent session in this project and say: Help me customize my Proofpress capture and review policies."]
         if args.command in {"hook", "managed-hook", "cursor-hook"}:
             print(json.dumps(result, separators=(",", ":")))
             return 0

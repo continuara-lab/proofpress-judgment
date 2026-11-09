@@ -118,6 +118,7 @@ def parser():
     sub.add_parser('managed-hook', help=argparse.SUPPRESS)
     sub.add_parser('cursor-hook', help=argparse.SUPPRESS)
     s = sub.add_parser("onboard", help="Preview or enable project-local capture policy and agent skills")
+    s.add_argument('--startup', action='store_true', help='Configure startup guidance for Codex, Claude Code and Cursor')
     s.add_argument('--upgrade', action='store_true', help='Back up and replace the installed Proofpress skill files')
     s.add_argument("--project", default=".")
     s.add_argument("--agents", nargs="+", choices=sorted(AGENTS), default=["codex"])
@@ -184,7 +185,7 @@ def run(args):
                 selected['triggers']=[] if args.triggers==['none'] else args.triggers
             if args.history is not None:selected['history']=args.history
             if args.extraction is not None:selected['extraction']=args.extraction
-        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade)
+        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup)
     if args.command == "history" and args.action == "scan":
         from .history import scan
         return scan(args.root,args.project,args.days,args.previews)

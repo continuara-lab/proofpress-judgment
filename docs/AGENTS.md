@@ -1,41 +1,31 @@
-# Everyday onboarding
-
-Use `proofpress onboard --agents codex` for the guided project setup, or select
-another agent from the compatibility list below. Onboarding explains capture,
-manual review, optional project history and how to change settings. Use
-`proofpress configure` later. `onboard --upgrade` backs up and refreshes existing
-Proofpress skill files. `proofpress uninstall --confirm` removes unchanged managed
-files while retaining edited files and the judgment store.
-
-`proofpress hooks install --host codex` previews a real project hook. Add
-`--confirm`, restart Codex and review `/hooks` in the host. Claude Code registration
-is also available. Skills for the other agents remain guidance-only integrations.
-[Local workflow](LOCAL-ALPHA.md).
-
 # Connect your agent
 
-Run setup from the project where the agent works. It creates a manual-only local
-store and installs a self-contained skill. It does not edit existing instruction
-files, host settings, hook configuration or home directories.
+Run the installer from the project where your agent works. It creates a local
+judgment store and a self-contained skill. For Codex, Claude Code and Cursor it
+also writes startup guidance that the host reads in new sessions.
 
-```sh
-proofpress setup --all --owner human:me
-```
+| Agent | Startup guidance |
+| --- | --- |
+| Codex | Managed block in `AGENTS.md` or an active `AGENTS.override.md` |
+| Claude Code | Project rule in `.claude/rules/proofpress.md` |
+| Cursor | Always-apply rule in `.cursor/rules/proofpress.mdc` |
 
-For selected agents, use `proofpress setup --agents cursor codex --owner human:me`.
-For a preview, add `--dry-run`. For structured output, add `--format json`.
-For another project, add `--project /path/to/project`.
-The global `--workspace` option selects a store inside that project and goes before
-`setup`. Existing stores retain their owner, policy, records and approval state.
-Repeating setup with identical files is a no-op. Different existing skill files
-cause an error before installation; move or preserve them yourself rather than
-silently overwriting them.
+The Codex installer appends a managed block to the project's instructions.
+`proofpress uninstall --confirm`
+removes the unchanged Proofpress block or rule and retains edited files and the
+judgment store. Hosts load project instructions according to their trust settings.
+
+Use `proofpress onboard --startup --agents codex` to preview the same configuration
+from an existing installation. `proofpress setup --all --owner human:me` installs
+all skill entry points. Use `--dry-run` on `setup` to preview skill files only.
+For another project, use `--project /path/to/project`. Pass `--workspace` before
+the subcommand to select a store inside that project.
 
 ## Agent entry points
 
 These paths follow the linked host documentation, checked November 7, 2026.
-The installer is tested locally. This is **skill-directory compatibility**, not
-evidence of successful live sessions in all 12 hosts. No host receives hooks.
+The table lists skill-directory compatibility. Install action hooks separately
+for Codex, Claude Code or Cursor. [Runtime setup](RUNTIME.md)
 
 Each path below contains `proofpress/SKILL.md` plus the same bundled workflow,
 coding example and AJF schema. Shared paths are written once.
@@ -60,16 +50,83 @@ content to the three directories needed by `--all`. If your host displays duplic
 entries, install only for that host in a clean project. Host enablement, trust and
 managed policies still apply; setup does not grant tool permissions.
 
-## Talk to your agent
+## Install by agent
 
-Ask the agent to use Proofpress when capturing a meaningful correction or
-beginning related work. Skill activation is host-dependent and model-directed;
-installation alone does not intercept all steering or guarantee recall.
+Run one command in your project. Codex, Claude Code and Cursor load the installed
+startup guidance in new sessions. For the other hosts, activate the Proofpress
+skill when it applies.
 
-The agent can propose a candidate and explain what needs review. You inspect it
-and run manual review separately using the [CLI guide](CLI.md#run-the-manual-loop).
-The same workflow captures the agent's own consequential judgments and assumptions
-without passing them off as your expertise. They also need review.
+### Codex
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents codex
+```
+
+### Claude Code
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents claude-code
+```
+
+### Cursor
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents cursor
+```
+
+### Devin CLI
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents devin
+```
+
+### Grok Build
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents grok
+```
+
+### Gemini CLI
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents gemini
+```
+
+### Hermes
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents hermes
+```
+
+### OpenClaw
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents openclaw
+```
+
+### GitHub Copilot CLI
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents copilot
+```
+
+### OpenCode
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents opencode
+```
+
+### Windsurf
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents windsurf
+```
+
+### Cline
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents cline
+```
 
 ## Install the runtime
 
@@ -89,8 +146,6 @@ its own workspace. A local installation does not sync judgments to cloud agents.
 
 ## Remove the integration
 
-`setup --dry-run` reports the skill directories. Remove only the `proofpress`
-directories you installed, preserving any edits you need. This stops future
-discovery after the agent reloads; it does not erase advice already in a running
-session. Keep or separately delete the `.judgment` store as you choose. Remove
-the runtime with `uv tool uninstall judgment-layer`.
+Run `proofpress uninstall` to preview removal. Add `--confirm` to remove the
+managed integration and retain the judgment store. Start a new agent session.
+Remove the CLI with `uv tool uninstall judgment-layer`.

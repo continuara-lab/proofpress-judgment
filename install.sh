@@ -28,14 +28,10 @@ else
 fi
 "$judgment_uv" tool install --upgrade --python 3.11 "$judgment_source"
 judgment_bin="$("$judgment_uv" tool dir --bin)"
-if [[ $# -eq 0 ]]; then
-  if [[ -e .judgment ]]; then
-    set -- --agents codex --confirm --upgrade
-  else
-    set -- --agents codex --owner "human:$(id -un)" --confirm
-  fi
+if [[ $# -eq 0 && -e .judgment ]]; then
+  set -- --upgrade
 fi
-"$judgment_bin/proofpress" onboard "$@"
+"$judgment_bin/proofpress" onboard --startup --confirm "$@"
 case ":$PATH:" in
   *":$judgment_bin:"*) ;;
   *) printf '\nAdd the CLI to your shell PATH: export PATH="%s:$PATH"\n' "$judgment_bin" ;;

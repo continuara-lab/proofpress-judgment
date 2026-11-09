@@ -36,7 +36,7 @@ def review_advice_text(result):
     if result is None:
         return "Not run for this revision."
     if result.get("status") == "stale":
-        return "Out of date. Run Check evidence again."
+        return "Out of date. Run Model assessment again."
     assessment = result["assessment"]
     labels = {"supported": "Evidence supported", "revise": "Revision suggested", "unknown": "Needs human judgment"}
     reasons = {

@@ -128,10 +128,10 @@ def interactive_review(workspace, jid, enforcement=None, input_fn=input):
         print(review_preview(item, enforcement))
         if old_binding:
             print('Existing protection: v'+str(old_binding['version'])+'. Choose Enforcement to review its replacement; approval alone does not upgrade it.')
-        answer = input_fn('[A] Approve'+(' and bind' if enforcement else '')+'  [J] Check evidence  [E] Edit  [H] Enforcement  [R] Reject  [C] Cancel: ').strip().lower()
+        answer = input_fn('[A] Approve'+(' and bind' if enforcement else '')+'  [J] Model assessment  [E] Edit  [H] Enforcement  [R] Reject  [C] Cancel: ').strip().lower()
         if answer in {'c', ''}: return {'review_result': 'Cancelled; no approval made.'}
         if answer == 'j':
-            if input_fn('Send the candidate and any policy-enabled referenced excerpts to TypeSafe? [y/N]: ').strip().lower() == 'y':
+            if input_fn('Run model assessment? This sends the candidate and any policy-enabled referenced excerpts to TypeSafe. [y/N]: ').strip().lower() == 'y':
                 s = Store(workspace)
                 try:
                     review_assist(s, jid, item["digest"])

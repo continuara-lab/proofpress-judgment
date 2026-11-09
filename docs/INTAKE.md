@@ -137,7 +137,7 @@ Use `proofpress review-policy` to see the current model timing, input scope and
 criteria. Local checks and manual admission apply with every policy.
 
 1. Set up the [TypeSafe configuration](RUNTIME.md#set-up-jev) in `.judgment/jev.env`.
-2. To check one candidate, choose **Check evidence** in `proofpress review ID`
+2. To check one candidate, choose **Model assessment** in `proofpress review ID`
    or run `proofpress review-assist ID`.
 3. To assess candidates saved through capture or revision, explicitly enable
    project-wide model advice. Put your criteria in a short text file before applying the policy.

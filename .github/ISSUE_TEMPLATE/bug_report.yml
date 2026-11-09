@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible CLI or integration problem.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Use synthetic examples. Remove credentials and private conversation content. Report security issues privately."
+  - type: input
+    id: version
+    attributes:
+      label: Version and environment
+      description: Proofpress commit/version, OS, Python and agent/host version.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the commands and a minimal synthetic example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Optional; remove secrets, personal details and private history.
+      render: text

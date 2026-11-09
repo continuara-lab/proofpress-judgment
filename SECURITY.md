@@ -1,3 +1,8 @@
+# Report a vulnerability
+
+Please use [private vulnerability reporting](https://github.com/continuara-lab/proofpress-judgment/security/advisories/new).
+Do not post credentials, private traces or exploit details in public issues.
+
 # Trust and authority boundaries
 
 This is a **cooperative single-user local tool**. The human operator owns the

@@ -1,3 +1,17 @@
+# Everyday onboarding
+
+Use `proofpress onboard --agents codex` for the guided project setup, or select
+another agent from the compatibility list below. Onboarding explains capture,
+manual review, optional project history and how to change settings. Use
+`proofpress configure` later. `onboard --upgrade` backs up and refreshes existing
+Proofpress skill files. `proofpress uninstall --confirm` removes unchanged managed
+files while retaining edited files and the judgment store.
+
+`proofpress hooks install --host codex` previews a real project hook. Add
+`--confirm`, restart Codex and review `/hooks` in the host. Claude Code registration
+is also available. Skills for the other agents remain guidance-only integrations.
+[Local alpha workflow](LOCAL-ALPHA.md).
+
 # Connect your agent
 
 Run setup from the project where the agent works. It creates a manual-only local

@@ -1,3 +1,30 @@
+# Everyday CLI
+
+Start with `proofpress onboard`, then use `proofpress configure` to choose what
+capture means for your project: your judgments, corrections, consequential agent
+choices and task-end lessons. Each category creates proposals for manual review.
+No automatic listener is installed.
+
+- `proofpress review` opens a numbered inbox; choose a candidate without copying an ID.
+- `proofpress review ID` reviews one judgment, with editing and proposed enforcement.
+- `proofpress edit ID` opens a concise TOML form in `$VISUAL` / `$EDITOR` / `vi`.
+- `proofpress withdraw ID` guides manual withdrawal and explains remaining protection.
+- `proofpress doctor` distinguishes configuration, bindings and observed runtime checks.
+- `proofpress hooks install --host codex` previews host registration; `--confirm` installs it.
+- `proofpress match --scope SCOPE --facts FILE` explains applicability without a model call.
+- `proofpress pause --confirm`, `resume --confirm` and `unbind ID --confirm` explicitly change protection.
+- `proofpress uninstall --confirm` removes managed integration and retains the store.
+
+For project history, run `history project --project PATH --days 7`. It prompts
+before local import. Then `consolidate --scope SCOPE --model-assessment --all`
+explicitly sends pending excerpts to Codex and creates candidates. Omit `--all`
+for a single batch. Manual review remains required. Model failure stops the run;
+completed batches are preserved and retries resume.
+
+[End-to-end local trial](LOCAL-ALPHA.md) explains trust, recovery and boundaries.
+The explicit commands below remain available for scripts; owner actions require
+an exact revision, digest, reason and human confirmation.
+
 # CLI guide
 
 For normal use, start with [agent setup](AGENTS.md). The commands below expose

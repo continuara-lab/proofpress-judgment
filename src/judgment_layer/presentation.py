@@ -62,6 +62,8 @@ def record_lines(item, detailed=False, identity=True):
         for link in r["links"]:
             lines.append(f"Link   {link['relation']} {link['id']} v{link['version']} {link['digest']}")
         if r.get("extensions"):
+            capture = r['extensions'].get('proofpress_capture',{})
+            if capture.get('trigger'): lines.append('Captured  '+capture['trigger'].replace('_',' '))
             lines.append("Source metadata: available with --json")
     if item.get("flags"):
         lines.append("Paused · conflicting or uncertain judgment; inspect --json")
@@ -86,6 +88,22 @@ def agent_projection(command, result):
 
 
 def render_text(command, result):
+    if 'review_result' in result: return result['review_result']
+    if result.get('host_setup'):
+        action = 'Removed' if result.get('removed') else 'Installed'
+        return '\n'.join([color('accent','Proofpress · Hooks'), color('accent','Host')+'  '+result['host'], color('accent','Config')+'  '+result['path'], (action if result['confirmed'] else 'Preview only; repeat with --confirm to change host configuration.'), result['trust'], *(['Command  '+result['command']] if not result['confirmed'] and 'command' in result else [])])
+    if result.get('doctor'):
+        lines=[color('accent','Proofpress · Doctor'), color('accent','Project')+'  '+result['project'], color('accent','Store')+'  '+result['workspace'], color('accent','Skills')+'  '+(', '.join(result['skills']) or 'None; run proofpress onboard'), color('accent','Enforcement')+'  '+('Paused by owner' if result['paused'] else 'Enabled for configured bindings')]
+        for host in result['hosts']:
+            lines += ['Hook  '+host['host']+' · '+('configured' if host['configured'] else 'missing or changed; reinstall'), 'Trust  '+host['trust']]
+        if not result['hosts']: lines += ['Hook  Not installed; preview with proofpress hooks install']
+        for b in result['bindings']: lines += ['Binding  '+b['name']+' v'+str(b['version'])+' · '+b['state']+' · '+', '.join(b['paths'])]
+        if not result['bindings']: lines += ['Bindings  None; review a judgment and choose enforcement.']
+        last=result['last_check']
+        lines += ['Observed  '+(last['at']+' · '+('passed' if last['ok'] else 'blocked')+' · '+last['reason'] if last else 'No runtime check recorded; host execution is not verified.')]
+        return '\n'.join(lines)
+    if 'matches' in result:
+        return '\n'.join([color('accent','Proofpress · Applicability'), *[x['name']+' v'+str(x['version'])+' · '+x['reason'] for x in result['matches']]])
     if "record" in result:
         return "\n".join(record_lines(result, detailed=command == "show"))
     if command == "context":
@@ -103,19 +121,61 @@ def render_text(command, result):
     if command == "inbox":
         return "\n".join(f"{status(x['state'])}  {x['name']} v{x['version']}  {x['id']}" for x in result['judgments']) or "No pending judgments."
     if command == "onboard":
-        p=result['capture_policy']
-        return "\n".join(["Proofpress · "+result['status'],"Project  "+result['project'],"Capture  "+", ".join(p['triggers']),
-                          "Review   manual", "History  "+p["history"], "Hooks    not installed",
-                          "Enabled" if result['status']=='enabled' else "Next  Repeat with --owner human:NAME --confirm to enable"])
+        p = result['capture_policy']
+        triggers = p['triggers']
+        labels = {'human_judgment':'your judgments', 'human_correction':'your corrections', 'agent_judgment':'agent judgments', 'task_end':'task-end lessons'}
+        capture = ', '.join(labels[x] for x in triggers) if triggers else 'off'
+        history = 'Import a project’s past Codex sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
+        lines = [color('accent', 'Proofpress · ' + ('Setup' if result['status'] == 'preview' else 'Ready')),
+                 color('accent', 'Project') + '  ' + result['project'],
+                 color('accent', 'Capture policy') + '  What your agent may save as a proposed judgment.',
+                 color('accent', 'Capture') + '  ' + capture + '.',
+                 '         Keep useful choices, reasons and conditions; skip routine messages.',
+                 '         Agent guidance; no automatic listener is installed.',
+                 color('accent', 'Review') + '   You approve judgments before reuse.',
+                 color('accent', 'History') + '  ' + history,
+                 color('accent', 'Hooks') + '    Setup does not install hooks. Check status with proofpress doctor.',
+                 color('accent', 'Change') + '   Run proofpress configure anytime.']
+        if result['status'] == 'preview' and not (sys.stdin.isatty() and sys.stdout.isatty()):
+            lines.append('To enable: repeat with --owner human:NAME --confirm.')
+        return "\n".join(lines)
     if command == "capture-policy":
         p=result['capture_policy']
-        return "\n".join(["Capture  "+", ".join(p['triggers']),"Extraction  "+p['extraction'],"Review  manual","History  "+p["history"]])
+        labels={'human_judgment':'your judgments','human_correction':'your corrections','agent_judgment':'agent judgments','task_end':'task-end lessons'}
+        return '\n'.join([color('accent','Capture policy')+'  What your agent may propose for review.',color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),color('accent','Review')+'   You approve before reuse.',color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),color('accent','Change')+'   proofpress configure'])
+    if command == "history" and result.get('project_history'):
+        lines = [color('accent', 'Proofpress · Project history'),
+                 color('accent','Project')+'  ' + result['project'],
+                 color('accent','History')+'  ' + str(result['sessions']) + ' Codex sessions · modified in last ' + str(result['days']) + ' days']
+        if result['imported']:
+            lines.append('Imported  ' + str(result['messages']) + ' messages locally · ' + str(result['pending_bytes']) + ' bytes pending')
+            if result['errors']:
+                lines.append(color('move','Needs attention')+'  ' + str(len(result['errors'])) + ' sessions; other imports are preserved')
+                lines += ['  '+x['source_key']+' · '+x['reason'] for x in result['errors']]
+            lines.append('Next  Extract candidates separately; nothing has been approved.')
+        else:
+            lines.append('Import  Redacted excerpts stored locally; no model call or approval.')
+            lines.append('Note  Redaction may not catch every sensitive detail.')
+        return '\n'.join(lines)
     if command == "history" and "sessions" in result:
-        return "\n".join(x["session_id"]+"  "+x["path"] for x in result["sessions"]) or "No matching sessions."
+        from datetime import datetime
+        if not result['sessions']: return "No matching sessions."
+        lines=[color('accent','Codex sessions')+' · '+str(len(result['sessions']))+' sources']
+        for x in result['sessions']:
+            date=datetime.fromtimestamp(x['modified_at']).strftime('%b %d')
+            title=x['title']
+            if title.startswith('# Files mentioned by the user:'):
+                title='Untitled session'
+            if title=='Untitled session':
+                title = 'First message: '+x['preview'] if x.get('preview') else 'Untitled session · '+x['session_id'][:8]
+            if len(title)>72:title=title[:71]+'…'
+            lines.append(color('accent',x['source_key'])+'  '+date+'  '+title)
+        lines.append('Preview: history preview --project PROJECT --session KEY')
+        return "\n".join(lines)
     if command == "history":
         return "History · "+str(result['messages'])+" messages · "+str(result['pending_bytes'])+" bytes pending"+ (" · local import" if result.get('ok') else " · preview only")
     if command == "consolidate":
-        return ("Pending  "+str(result['pending_batches'])+" batches · add --model-assessment to extract candidates") if 'pending_batches' in result else ("Captured  "+str(len(result['candidates']))+" candidates · manual review required")
+        return ("Pending  "+str(result['pending_batches'])+" batches · add --model-assessment to send excerpts to Codex and extract candidates") if 'pending_batches' in result else ("Captured  "+str(len(result['candidates']))+" candidates · manual review required\nRemaining  "+str(result['remaining_batches'])+" batches\nNext  proofpress inbox, then proofpress review ID")
     if command == "observe":
         return "Observation recorded · "+result['event_id']
     if command == "observations":

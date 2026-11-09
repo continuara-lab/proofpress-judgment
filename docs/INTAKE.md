@@ -1,3 +1,27 @@
+# Project history and capture settings
+
+Onboarding explains capture policy as “what your agent may save as a proposed
+judgment,” lists the enabled categories and links to `proofpress configure`.
+The defaults cover your judgments, corrections, consequential agent choices and
+task-end lessons. Capture is skill guidance, not a background listener.
+
+Import by project:
+
+```sh
+proofpress history project --project /path/to/project --days 7
+proofpress consolidate --scope coding --model-assessment --all
+proofpress review
+```
+
+Import asks before storing redacted excerpts locally; errors are displayed with
+source keys and reasons. Extraction explicitly sends excerpts to Codex and follows
+allowed capture triggers. Each candidate records its trigger and policy digest;
+it remains a hypothesis requiring human scope and source review. `--all` processes
+the current pending snapshot. Omit it to process a single batch. No scheduler or
+automatic approval is installed. Redaction is not complete privacy protection.
+
+The per-session commands below remain advanced tools. [Local trial](LOCAL-ALPHA.md).
+
 # Onboarding, session intake and observations
 
 This iteration implements the first local intake path. It uses existing manual
@@ -19,7 +43,7 @@ proofpress capture-policy
 ```
 
 Onboarding installs project-local skill entry points and records default capture
-policy: human corrections, consequential agent judgments and task boundaries;
+policy: human judgments, human corrections, consequential agent judgments and task boundaries;
 manual extraction; selected history only; manual review. These are instructions
 for participating agents, not a new background observer or automatic host hook.
 No OS scheduler is installed. Existing different skill files are preserved rather

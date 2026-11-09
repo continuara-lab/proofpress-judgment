@@ -1,3 +1,43 @@
+# Installed Codex verification
+
+[Installed-hook receipt](verification/installed-codex-hooks-2026-11-09.json) records
+four successful new-session checks with Codex 0.153.4. The project hook was installed
+by the production CLI, then the synthetic project and exact hook were reviewed
+through Codex's ordinary trust UI. No inline hook injection or trust-bypass flag
+was used. Checks covered generated-file denial, superseded-binding denial,
+explicit rebinding allowing a real patch, and withdrawal denying the next patch.
+Every scenario required a hook ledger event and the expected file result.
+
+Rerun with `python scripts/verify_installed_hooks.py --prepare`, trust only that
+synthetic project and its hook in Codex, then run `--run-live --project PATH --model
+AVAILABLE_MODEL --output /private/path/receipt.json`. This makes real model calls.
+It never opens a normal user's judgment store. Model/account configuration must
+be usable; a request failing before tool execution is not a successful block.
+
+# Guided enforcement and recovery
+
+`proofpress review ID` now displays proposed enforcement beside the judgment.
+Choose Enforcement, set the verifier, project and paths, then approve the exact
+preview. Admission and binding are atomic. `bind --from FILE --confirm` remains
+an explicit lower-level operation.
+
+Install with `proofpress hooks install --host codex --confirm`; this preserves
+other hook registrations in `.codex/hooks.json`. Host project trust and exact-hook
+trust are separate: restart Codex and use `/hooks`. `doctor` reports configuration
+and the last observed check, never grants or assumes trust. See the
+[official hook trust guide](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
+Use `pause --confirm` / `resume --confirm` for an explicit owner pause. Withdrawn
+or superseded bindings keep blocking until explicitly reviewed/rebound or removed
+with `unbind ID --confirm`. `hooks remove --host codex --confirm` unregisters only
+the managed entry. No bindings means the managed hook does not block ordinary work.
+While bindings exist, unsupported shell/MCP routes pause conservatively. A missing
+CLI emits a denial fallback; host timeouts and disabled/untrusted hooks remain
+outside this cooperative gate's guarantees.
+
+[Full local workflow](LOCAL-ALPHA.md). The earlier explicit binding API and live
+prototype receipts below remain useful for comparison.
+
 # Runtime checks and optional decision model assessment
 
 Local prototype. Manual admission is still required. No hooks are installed by

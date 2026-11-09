@@ -1,5 +1,8 @@
 """Project-local skill installation, with no host config edits or owner actions."""
 import shlex
+import json
+import hashlib
+import uuid
 from importlib.resources import files
 from pathlib import Path
 
@@ -36,7 +39,7 @@ def check_path(path, root):
             raise JudgmentError(f"Setup parent is not a directory: {entry}")
 
 
-def setup(project, workspace, agents, owner=None, dry_run=False):
+def setup(project, workspace, agents, owner=None, dry_run=False, upgrade=False):
     root = Path(project).resolve()
     if not root.is_dir():
         raise JudgmentError("Project must be an existing directory")
@@ -83,7 +86,7 @@ def setup(project, workspace, agents, owner=None, dry_run=False):
         for name, text in resources.items():
             target = root / directory / "proofpress" / name
             check_path(target, root)
-            if target.exists() and (not target.is_file() or target.read_text() != text):
+            if target.exists() and (not target.is_file() or (target.read_text() != text and not upgrade)):
                 raise JudgmentError(f"Existing file differs; preserve or move it before setup: {target}")
             planned[target] = text
     # Preflight all conflicts before creating a store or any skill files.
@@ -92,11 +95,21 @@ def setup(project, workspace, agents, owner=None, dry_run=False):
         if not store.exists():
             initialize(store, owner)
         for target, text in planned.items():
+            if target.exists() and target.read_text() != text:
+                backup = store / 'skill-backups' / uuid.uuid4().hex / target.relative_to(root)
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                backup.write_bytes(target.read_bytes())
+                target.write_text(text)
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with target.open("x") as out:
                     out.write(text)
                 created.append(str(target))
+        manifest = store/'skills.json'
+        saved = json.loads(manifest.read_text()) if manifest.exists() else {}
+        saved.update({str(target):hashlib.sha256(text.encode()).hexdigest() for target,text in planned.items()})
+        from .hosts import atomic_json
+        atomic_json(manifest,saved)
     return {
         "ok": True, "dry_run": dry_run, "project": str(root), "workspace": str(store),
         "agents": selected, "admission": "manual", "hooks_installed": False,

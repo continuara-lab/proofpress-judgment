@@ -39,10 +39,11 @@ if name=='uv' and sys.argv[1:]==['tool','dir','--bin']: print(os.environ['TEST_B
                     self.assertEqual(result.returncode, 0, result.stderr)
                     setup = next(x for x in calls if x[0] == 'proofpress')
                     if failure == 'existing':
-                        self.assertEqual(setup[1:], ['setup', '--all'])
+                        self.assertEqual(setup[1:], ['onboard', '--agents', 'codex', '--confirm', '--upgrade'])
                     else:
-                        self.assertEqual(setup[1:4], ['setup', '--all', '--owner'])
-                        self.assertTrue(setup[4].startswith('human:'))
+                        self.assertEqual(setup[1:5], ['onboard', '--agents', 'codex', '--owner'])
+                        self.assertTrue(setup[5].startswith('human:'))
+                        self.assertEqual(setup[6], '--confirm')
                 else:
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(any(x[0] == 'proofpress' for x in calls))

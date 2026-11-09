@@ -65,6 +65,20 @@ class IntakeTests(unittest.TestCase):
         mirror=self.root/'mirror.jsonl';mirror.write_bytes(self.file.read_bytes())
         self.assertEqual(self.op(lambda:ingest(self.s,mirror,self.root))['messages'],0)
         self.assertEqual(self.s.db.execute('select count(*) from revisions').fetchone()[0],0)
+    def test_project_history_preview_and_confirm_are_scoped_and_idempotent(self):
+        from judgment_layer.cli import parser, run
+        session_root = self.root/'sessions'; session_root.mkdir()
+        (session_root/'one.jsonl').write_bytes(self.file.read_bytes())
+        other = copy.deepcopy(self.rows); other[0]['payload']['cwd'] = str(self.root/'other')
+        (session_root/'other.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in other))
+        args = parser().parse_args(['--workspace', str(self.root/'store'), 'history', 'project', '--root', str(session_root), '--project', str(self.root)])
+        result = run(args)
+        self.assertEqual(result['sessions'], 1)
+        self.assertFalse(any(e['kind']=='history_imported' for e in self.s.events()))
+        args.confirm = True
+        self.assertEqual(run(args)['messages'], 2)
+        self.assertEqual(run(args)['messages'], 0)
+        self.assertEqual(self.s.db.execute('select count(*) from revisions').fetchone()[0], 0)
     def test_partial_append_and_source_replacement(self):
         self.file.write_text(self.file.read_text()+'{"partial":')
         self.op(lambda:ingest(self.s,self.file,self.root))
@@ -140,3 +154,24 @@ class IntakeTests(unittest.TestCase):
         with patch('judgment_layer.history.extract') as model:
             with self.assertRaises(JudgmentError):self.op(lambda:consolidate(self.s,'coding',True))
             model.assert_not_called()
+    def test_scan_title_selection_is_stable_across_new_sessions(self):
+        import sqlite3
+        from judgment_layer.history import scan, resolve_selection
+        sessions=self.root/'sessions';sessions.mkdir()
+        source=sessions/'one.jsonl';source.write_bytes(self.file.read_bytes())
+        with sqlite3.connect(self.root/'state_5.sqlite') as db:
+            db.execute('create table threads(id text, title text, cwd text)')
+            db.execute('insert into threads values(?,?,?)',('synthetic-session','Readable test title',str(self.root)))
+        first=scan(sessions,self.root)['sessions'][0]
+        self.assertEqual(first['title'],'Readable test title')
+        another=sessions/'another.jsonl';another.write_bytes(source.read_bytes())
+        self.assertEqual(resolve_selection(sessions,self.root,7,first['source_key']),str(source.resolve()))
+        self.assertNotEqual(scan(sessions,self.root)['sessions'][0]['source_key'],scan(sessions,self.root)['sessions'][1]['source_key'])
+    def test_scan_previews_are_optional_bounded_and_redacted(self):
+        from judgment_layer.history import scan
+        basic=scan(self.root,self.root)['sessions'][0]
+        self.assertIsNone(basic['preview'])
+        expanded=scan(self.root,self.root,previews=True)['sessions'][0]
+        self.assertIn('Do not modify generated files',expanded['preview'])
+        self.assertNotIn('synthetic-private-token',expanded['preview'])
+        self.assertLessEqual(len(expanded['preview']),160)

@@ -6,7 +6,7 @@ from .model import JudgmentError, canonical, digest, instant, now
 from .setup import setup
 from .store import Store
 
-DEFAULT_POLICY={'version':1,'triggers':['human_correction','agent_judgment','task_end'],
+DEFAULT_POLICY={'version':1,'triggers':['human_judgment','human_correction','agent_judgment','task_end'],
                 'extraction':'manual','history':'selected_only','review':'manual',
                 'max_excerpt_chars':24000}
 
@@ -30,7 +30,7 @@ def set_policy(store, value, confirmed):
     return {'ok':True,'capture_policy':value}
 
 
-def onboard(project, workspace, agents, owner, confirmed, selection=None):
+def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False):
     root=Path(project).resolve();path=Path(workspace)
     path=path if path.is_absolute() else root/path
     base=dict(DEFAULT_POLICY)
@@ -40,7 +40,7 @@ def onboard(project, workspace, agents, owner, confirmed, selection=None):
             with existing.transaction():base=policy(existing)
         finally:existing.close()
     value={**base,**(selection or {})}
-    result=setup(root,workspace,agents,owner,dry_run=not confirmed)
+    result=setup(root,workspace,agents,owner,dry_run=not confirmed,upgrade=upgrade)
     if confirmed:
         s=Store(path)
         try:

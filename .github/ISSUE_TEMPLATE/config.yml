@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/continuara-lab/proofpress-judgment/security/advisories/new
+    about: Report vulnerabilities privately; do not include exploit details in public issues.
+  - name: Setup and integration guide
+    url: https://github.com/continuara-lab/proofpress-judgment/blob/main/docs/AGENT-SETUP.md
+    about: Installation, agent setup and workflow instructions.

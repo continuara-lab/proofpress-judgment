@@ -126,7 +126,8 @@ cooperative local hooks; host trust and tool coverage matter.
 
 [Installation](docs/INSTALL.md) · [Agent setup](docs/AGENT-SETUP.md) ·
 [CLI reference](docs/CLI.md) · [AJF records](docs/AJF.md) ·
-[Evaluation](evals/README.md) · [Security](SECURITY.md) · [License](LICENSE)
+[Evaluation](evals/README.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md) · [License](LICENSE)
 
 For agents: read the installed `proofpress` skill for this project's workspace
 and capture settings. Use `--format agent` for compact output; `--json` expands

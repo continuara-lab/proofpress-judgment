@@ -27,6 +27,22 @@ class IntakeTests(unittest.TestCase):
     def op(self,fn):
         with self.s.transaction():return fn()
 
+    def test_review_shows_actual_criteria_and_uncertain_model_scores(self):
+        from judgment_layer.interactive import review_preview
+        item = self.op(lambda: self.s.capture(self.doc))
+        item["deterministic_issues"] = []
+        item["review_criteria"] = "Keep the project's review criteria visible."
+        item["review_advice"] = {
+            "policy_version": 0,
+            "assessment": {"choice": "unknown", "reason": "low_certainty",
+                           "probabilities": {"supported": 0.61, "unknown": 0.39}, "confidence": 0.51},
+        }
+        output = review_preview(item, None)
+        self.assertIn(item["review_criteria"], output)
+        self.assertIn("Evidence supported (61%)", output)
+        self.assertIn("Model confidence: 51%", output)
+        self.assertIn("no written explanation was requested", output)
+
     def test_natural_language_guidance_is_previewed_before_human_confirmation(self):
         from judgment_layer.cli import parser, run
         proposed = copy.deepcopy(policy(self.s))

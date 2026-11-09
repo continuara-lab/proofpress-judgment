@@ -150,12 +150,13 @@ def render_text(command, result):
     if command == "review-assist":
         return "Proofpress · Model advice\n" + review_advice_text(result) + "\nYou decide whether to approve."
     if command == "review-policy":
+        from .review_policy import DEFAULT_CRITERIA
         p = result["review_policy"]
         timing = "After capture and revision" if p["mode"] == "on_capture" else "On request"
         inputs = "Candidate and referenced history excerpts" if p["evidence"] == "referenced_history" else "Candidate record only"
         return "\n".join([color("accent", "Proofpress · Review policy") + f"  v{p['version']}",
                           "Model checks  " + timing, "Model inputs  " + inputs,
-                          "Criteria  " + (p["criteria"] or "Evidence supports the choice and its stated scope."),
+                          "Criteria  " + (p["criteria"] or DEFAULT_CRITERIA),
                           "Approval  Manual"])
     if command == "onboard":
         p = result['capture_policy']

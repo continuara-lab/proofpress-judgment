@@ -3,6 +3,8 @@
 from .model import JudgmentError, digest
 from .runtime import active_flags
 
+DEFAULT_CRITERIA = "The supplied evidence supports the choice and its stated scope. Prefer reusable judgments with clear limits."
+
 DEFAULT_REVIEW_POLICY = {
     "version": 0,
     "mode": "manual",
@@ -86,7 +88,7 @@ def review_assist(store, jid, expected_digest=None, automatic=False):
     if issues:
         assessment = {"choice": "unknown", "reason": "deterministic_checks_blocked"}
     else:
-        criteria = policy["criteria"] or "The supplied evidence supports the choice and its stated scope. Prefer reusable judgments with clear limits."
+        criteria = policy["criteria"] or DEFAULT_CRITERIA
         question = (
             "Advise whether a human should admit this judgment for later reuse. Apply the project owner's criteria "
             "below. Use only supplied evidence. A reference alone does not establish its contents. "

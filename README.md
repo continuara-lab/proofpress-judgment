@@ -147,6 +147,14 @@ Restart the agent and complete its project and hook trust flow. Run
 `proofpress doctor` to inspect configuration and the last observed check.
 [Tool coverage and recovery](docs/RUNTIME.md)
 
+### Optional Jev checks
+
+Jev can screen a proposed judgment for conflicts with approved guidance or
+check a complete new file before a covered write. Use a TypeSafe API key
+when you want either check. Manual review and local path and condition checks
+work without a key. [Set up Jev and run a check](docs/RUNTIME.md#set-up-jev) ·
+[Environment template](.env.example)
+
 ## Documentation
 
 [Installation](docs/INSTALL.md) · [Agent setup](docs/AGENT-SETUP.md) ·

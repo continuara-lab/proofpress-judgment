@@ -118,6 +118,7 @@ def doctor(store, project):
 
 def uninstall(store, project, confirmed=False):
     import hashlib
+    from .startup import apply_changes, plan_removal
     root=Path(project).resolve(); removed=[]; preserved=[]
     manifest=store.root/'skills.json'
     files=json.loads(manifest.read_text()) if manifest.exists() else {}
@@ -134,8 +135,17 @@ def uninstall(store, project, confirmed=False):
         m=json.loads((store.root/('host-'+host+'.json')).read_text())
         if not Path(m['path']).is_relative_to(root): raise JudgmentError('Hook belongs to another project')
         remove(store,host,False)  # Preflight before changing any files.
+    startup_changes, edited_startup = plan_removal(store.root, root)
     if confirmed:
+        apply_changes(startup_changes)
+        if (store.root / "startup.json").exists():
+            atomic_json(store.root / "startup.json", edited_startup)
         for host in hosts: remove(store,host,True)
         for name in removed: Path(name).unlink()
         if manifest.exists(): atomic_json(manifest,{k:v for k,v in files.items() if k not in removed})
-    return {'review_result':('Removed integration. Restart your agent. Judgment store preserved.' if confirmed else 'Preview: '+str(len(removed))+' skill files and '+str(len(hosts))+' hooks. Repeat with --confirm.')+(' Edited skill files preserved: '+', '.join(preserved) if preserved else '')}
+    preserved.extend(edited_startup)
+    preview = f"Preview: {len(removed)} skill files, {len(startup_changes)} startup files and {len(hosts)} hooks. Repeat with --confirm."
+    result = 'Removed integration. Restart your agent. Judgment store preserved.' if confirmed else preview
+    if preserved:
+        result += ' Edited files preserved: ' + ', '.join(preserved)
+    return {'review_result': result}

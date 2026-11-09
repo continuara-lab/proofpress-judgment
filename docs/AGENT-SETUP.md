@@ -2,15 +2,11 @@
 
 ## Start from a human terminal
 
-Install from the [README quick start](../README.md#quick-start) in the project where
-you work. Codex is the default; Claude Code, Cursor and other skill entry points
-are listed in the [compatibility guide](AGENTS.md).
-
-Start a fresh agent session in that project and ask:
-
-> Use Proofpress. Propose useful judgments from my guidance and your work, with
-> reasons, sources and conditions. Use approved judgments before related tasks.
-> Leave approval to me.
+Run your agent's installer from the [README quick start](../README.md#quick-start)
+in the project where you work. Open a fresh Codex, Claude Code or Cursor session
+and give it a task. The installed startup guidance points the agent to the local
+Proofpress skill. Other supported hosts use their own skill discovery and invocation
+flow. [Install by agent](AGENTS.md#install-by-agent)
 
 Continue with a real task. When a consequential choice or correction arises,
 the agent can propose a record. Open `proofpress review` in a terminal to inspect,

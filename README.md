@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Proofpress logo" width="88" height="88">
+</p>
+
 # Proofpress
 
 **Your judgment. Built into your agents.**
@@ -19,44 +23,38 @@ A choice worth carrying forward, with its reasons and boundaries. For example:
 > **When:** Public results and previews.
 > **Excludes:** Private content and access checks.
 
-The same pattern works for design standards, sales qualification and slide reviews.
-Capture your judgments and the agent's own consequential choices. Review what
-should guide later work; revise or withdraw it when conditions change. If search
-later powers urgent alerts, update the judgment: **Cache public results. Keep
-urgent alerts live.**
+A judgment can shape one task or guide a project over time. Keep the choice,
+the tradeoff behind it and the conditions that would change it. Both you and
+an agent can propose judgments. If search starts powering urgent alerts, the
+tradeoff changes. **Cache public results. Keep urgent alerts live.**
 
 ## Quick start
 
-Requires macOS or Linux and Git. The installer handles Python and the CLI. Already using the older Proofpress CLI?
-Use a [separate environment](docs/INSTALL.md#keep-existing-proofpress-installations-separate).
+Run your agent's command from the project where you work. Requires macOS or
+Linux and Git. The installer sets up Python, Proofpress, the project's
+`.judgment/` store and the guidance for your agent. [Installation details](docs/INSTALL.md)
 
-**Run this in the project where you use your agent:**
+### Codex
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents codex
 ```
 
-This enables Codex guidance and creates a local `.judgment/` folder for records,
-review history and settings. Follow any PATH instruction the installer prints.
-Choose an agent below, then start a fresh session in this project.
+### Claude Code
 
-## Connect your coding agent
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents claude-code
+```
 
-| Agent | Enable project guidance | Optional enforcement |
-| --- | --- | --- |
-| **Codex** | Enabled by the installer | `proofpress hooks install --host codex --confirm`, then review `/hooks` in Codex |
-| **Claude Code** | `proofpress onboard --agents claude-code` | `proofpress hooks install --host claude-code --confirm`, then review hooks in Claude Code |
-| **Cursor** | `proofpress onboard --agents cursor` | `proofpress hooks install --host cursor --confirm`; [Cursor coverage](docs/CURSOR.md) |
+### Cursor
 
-Confirm onboarding in your terminal. Guidance helps agents propose and retrieve
-judgments; hooks check supported actions before execution.
-[Integration details](docs/AGENTS.md)
+```sh
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents cursor
+```
 
-Start a new agent session in the same project and say:
-
-> Use Proofpress. Propose useful judgments from my guidance and your work, with
-> reasons, sources and conditions. Use approved judgments before related tasks.
-> Leave approval to me.
+Start a fresh session in the project and give your agent a task. The project
+instructions tell it when to look up approved judgments and propose new ones.
+[Commands for other agents](docs/AGENTS.md#install-by-agent)
 
 When your agent proposes a judgment, review it in your terminal:
 
@@ -67,6 +65,22 @@ proofpress review
 Choose a candidate from the numbered inbox. Read it, edit it if needed, then approve
 or reject it. **You approve before reuse.** Capture is agent guidance, not an
 automatic listener for every message.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Agent session] -->|Proposes choices with reasons and sources| S[Local judgment store]
+    H[Human review] -->|Approves, revises or withdraws| S
+    S -->|Supplies approved versions that match task facts| A
+    A -->|Requests a covered action| K[Optional host hook]
+    S -->|Supplies the bound judgment and version| K
+    K -->|Passed checks| T[Host tool]
+```
+
+Proofpress stores AJF records, review decisions and reuse receipts in the project's
+SQLite database. Agents consult it through the CLI. The human owns admission and
+chooses which actions need an enforcement hook. [Records](docs/AJF.md) · [Runtime](docs/RUNTIME.md)
 
 ## The everyday loop
 
@@ -107,14 +121,15 @@ review. Redaction may miss sensitive details. [History guide](docs/INTAKE.md)
 <summary><strong>Enforce a judgment with a hook</strong></summary>
 
 Choose **Enforcement** during review to inspect and approve the proposed protection
-together with the judgment. Then install the host hook:
+together with the judgment. Select your host when installing the hook.
 
 ```sh
 proofpress hooks install --host codex             # Preview
 proofpress hooks install --host codex --confirm   # Install
 ```
 
-Restart Codex, trust the project and review the hook in `/hooks`. Supported checks
+Use `--host claude-code` or `--host cursor` for those agents. Follow the host’s
+trust and hook review flow after restarting it. Supported checks
 cover protected paths, lifecycle/conditions and optional decision model assessment.
 Shell, MCP and unsupported routes pause while bindings are active. These are
 cooperative local hooks; host trust and tool coverage matter.

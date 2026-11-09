@@ -8,7 +8,7 @@ This integration requires a Cursor version that emits the documented generic
 ## Enable in a project
 
 ```sh
-proofpress onboard --agents cursor
+proofpress onboard --startup --agents cursor
 proofpress hooks install --host cursor
 proofpress hooks install --host cursor --confirm
 ```

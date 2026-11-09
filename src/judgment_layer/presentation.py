@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+from pathlib import Path
 
 PALETTE = {"accent":"5FB3C4", "add":"6FBF8E", "del":"C87E82", "move":"D7B56D", "dim":"ADB0BA"}
 
@@ -138,6 +139,11 @@ def render_text(command, result):
                  color('accent', 'Change') + '   Run proofpress configure anytime.']
         if result['status'] == 'preview' and not (sys.stdin.isatty() and sys.stdout.isatty()):
             lines.append('To enable: repeat with --owner human:NAME --confirm.')
+        if result.get('startup_files'):
+            paths = ', '.join(str(Path(path).relative_to(result['project'])) for path in result['startup_files'])
+            lines.append(color('accent', 'Startup') + '  ' + paths)
+        if result['status'] == 'enabled':
+            lines.append('Next  ' + result['next'][0])
         return "\n".join(lines)
     if command == "capture-policy":
         p=result['capture_policy']

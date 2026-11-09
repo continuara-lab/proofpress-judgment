@@ -30,7 +30,7 @@ def set_policy(store, value, confirmed):
     return {'ok':True,'capture_policy':value}
 
 
-def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False):
+def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False, startup=False):
     root=Path(project).resolve();path=Path(workspace)
     path=path if path.is_absolute() else root/path
     base=dict(DEFAULT_POLICY)
@@ -40,7 +40,9 @@ def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrad
             with existing.transaction():base=policy(existing)
         finally:existing.close()
     value={**base,**(selection or {})}
-    result=setup(root,workspace,agents,owner,dry_run=not confirmed,upgrade=upgrade)
+    if startup and confirmed and owner is None and not path.exists():
+        owner = "human:" + getpass.getuser()
+    result=setup(root,workspace,agents,owner,dry_run=not confirmed,upgrade=upgrade,startup=startup)
     if confirmed:
         s=Store(path)
         try:

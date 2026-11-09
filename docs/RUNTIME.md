@@ -7,8 +7,9 @@ exact revision. [Review and recovery walkthrough](LOCAL-ALPHA.md)
 
 ## Install a host hook
 
-Run `proofpress hooks install --host HOST` to preview. Repeat with `--confirm`
-to register the hook without replacing existing entries.
+Copy the [install command for your agent](../README.md#enforce-judgments).
+The installer preserves existing hook entries. To preview the registration
+first, run the command without `--confirm`.
 
 | Host | Command value | Configuration | Verification |
 | --- | --- | --- | --- |

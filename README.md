@@ -123,12 +123,26 @@ Use hooks when a judgment should pause a covered tool action. In
 `proofpress review`, choose **Enforcement** and review the paths and check
 alongside the judgment. One approval binds both to the exact revision.
 
+Run the command for your agent from the project you want to protect.
+
+**Codex**
+
 ```sh
-proofpress hooks install --host codex             # Preview
-proofpress hooks install --host codex --confirm   # Install
+proofpress hooks install --host codex --confirm
 ```
 
-For Claude Code or Cursor, replace `codex` with `claude-code` or `cursor`.
+**Claude Code**
+
+```sh
+proofpress hooks install --host claude-code --confirm
+```
+
+**Cursor**
+
+```sh
+proofpress hooks install --host cursor --confirm
+```
+
 Restart the agent and complete its project and hook trust flow. Run
 `proofpress doctor` to inspect configuration and the last observed check.
 [Tool coverage and recovery](docs/RUNTIME.md)

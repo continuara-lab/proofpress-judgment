@@ -1,6 +1,8 @@
 # Playground implementation and verification
 
-On November 8, 2026, the playground exercised three flows:
+This page records the November 8, 2026 playground. For the current CLI,
+see [setup](AGENT-SETUP.md), [session import](INTAKE.md) and
+[installed hooks](RUNTIME.md). The playground exercised three flows:
 
 - Capture human corrections, review them manually, reuse them in applicable coding
   tasks, and invalidate reuse through withdrawal or revision.

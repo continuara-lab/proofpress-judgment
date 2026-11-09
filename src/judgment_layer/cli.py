@@ -139,12 +139,13 @@ def parser():
     s.add_argument("id")
     s = sub.add_parser("review-assist", help="Deterministic and model-assisted review; never admits")
     s.add_argument("id")
-    s = sub.add_parser("history", help="Import a selected project's Codex history; advanced session tools are available")
+    s = sub.add_parser("history", help="Import local Codex, Claude Code or Cursor sessions")
     s.add_argument("action", choices=["scan", "preview", "import", "project"])
     selector=s.add_mutually_exclusive_group()
     selector.add_argument("--file")
     selector.add_argument("--session", help="Stable source key from history scan")
-    s.add_argument("--root", default="~/.codex/sessions")
+    s.add_argument("--agent", choices=["codex", "claude-code", "cursor"], default="codex")
+    s.add_argument("--root", help="Override the selected agent’s local history directory")
     s.add_argument("--days", type=int, default=7)
     s.add_argument("--previews", action="store_true", help="Read short first-user-message previews locally")
     s.add_argument("--confirm", action="store_true", help="Import the selected project's history locally")
@@ -188,20 +189,20 @@ def run(args):
         return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup)
     if args.command == "history" and args.action == "scan":
         from .history import scan
-        return scan(args.root,args.project,args.days,args.previews)
+        return scan(args.root,args.project,args.days,args.previews,agent=args.agent)
     if args.command == "history" and args.action == "project" and not args.confirm:
         from .history import scan
-        found = scan(args.root, args.project, args.days)
-        return {'project_history': True, 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'skipped': found['skipped'], 'imported': False}
+        found = scan(args.root, args.project, args.days, agent=args.agent)
+        return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'skipped': found['skipped'], 'imported': False}
     if args.command == "history" and args.action not in {"scan", "project"}:
         if args.session:
             from .history import resolve_selection
-            args.file=resolve_selection(args.root,args.project,args.days,args.session)
+            args.file=resolve_selection(args.root,args.project,args.days,args.session,agent=args.agent)
         if not args.file:
             raise JudgmentError("Select --session from history scan (or use --file)")
     if args.command == "history" and args.action == "preview":
         from .history import preview
-        return preview(args.file,args.project)
+        return preview(args.file,args.project,agent=args.agent)
     if args.command == "setup":
         return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
                      args.owner, args.dry_run)
@@ -308,19 +309,19 @@ def run(args):
             if args.command == "history":
                 from .history import ingest, scan
                 if args.action == 'project':
-                    found = scan(args.root, args.project, args.days)
+                    found = scan(args.root, args.project, args.days, agent=args.agent)
                     messages = 0; pending = 0; errors = []
                     for item in found['sessions']:
                         try:
                             while True:
-                                batch = ingest(store, item['path'], args.project)
+                                batch = ingest(store, item['path'], args.project, agent=args.agent)
                                 messages += batch['messages']
                                 if batch.get('duplicate') or not batch['pending_bytes']:
                                     pending += batch['pending_bytes']; break
                         except JudgmentError as exc:
                             errors.append({'source_key': item['source_key'], 'reason': str(exc)})
-                    return {'project_history': True, 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'messages': messages, 'pending_bytes': pending, 'errors': errors, 'imported': True}
-                return ingest(store,args.file,args.project)
+                    return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'messages': messages, 'pending_bytes': pending, 'errors': errors, 'imported': True}
+                return ingest(store,args.file,args.project,agent=args.agent)
             if args.command == "consolidate":
                 from .history import consolidate
                 return consolidate(store,args.scope,args.model_assessment)

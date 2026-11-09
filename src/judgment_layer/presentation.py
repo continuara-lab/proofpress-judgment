@@ -126,7 +126,7 @@ def render_text(command, result):
         triggers = p['triggers']
         labels = {'human_judgment':'your judgments', 'human_correction':'your corrections', 'agent_judgment':'agent judgments', 'task_end':'task-end lessons'}
         capture = ', '.join(labels[x] for x in triggers) if triggers else 'off'
-        history = 'Import a project’s past Codex sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
+        history = 'Import past Codex, Claude Code or Cursor sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
         lines = [color('accent', 'Proofpress · ' + ('Setup' if result['status'] == 'preview' else 'Ready')),
                  color('accent', 'Project') + '  ' + result['project'],
                  color('accent', 'Capture policy') + '  What your agent may save as a proposed judgment.',
@@ -150,9 +150,11 @@ def render_text(command, result):
         labels={'human_judgment':'your judgments','human_correction':'your corrections','agent_judgment':'agent judgments','task_end':'task-end lessons'}
         return '\n'.join([color('accent','Capture policy')+'  What your agent may propose for review.',color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),color('accent','Review')+'   You approve before reuse.',color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),color('accent','Change')+'   proofpress configure'])
     if command == "history" and result.get('project_history'):
+        from .history import AGENT_LABELS
+        agent = AGENT_LABELS[result["agent"]]
         lines = [color('accent', 'Proofpress · Project history'),
                  color('accent','Project')+'  ' + result['project'],
-                 color('accent','History')+'  ' + str(result['sessions']) + ' Codex sessions · modified in last ' + str(result['days']) + ' days']
+                 color('accent','History')+'  ' + str(result['sessions']) + ' ' + agent + ' sessions · modified in last ' + str(result['days']) + ' days']
         if result['imported']:
             lines.append('Imported  ' + str(result['messages']) + ' messages locally · ' + str(result['pending_bytes']) + ' bytes pending')
             if result['errors']:
@@ -162,11 +164,14 @@ def render_text(command, result):
         else:
             lines.append('Import  Redacted excerpts stored locally; no model call or approval.')
             lines.append('Note  Redaction may not catch every sensitive detail.')
+            if result['agent'] == 'cursor':
+                lines.append('Source  ' + result['directory'])
         return '\n'.join(lines)
     if command == "history" and "sessions" in result:
         from datetime import datetime
+        from .history import AGENT_LABELS
         if not result['sessions']: return "No matching sessions."
-        lines=[color('accent','Codex sessions')+' · '+str(len(result['sessions']))+' sources']
+        lines=[color('accent',AGENT_LABELS[result['agent']]+' sessions')+' · '+str(len(result['sessions']))+' sources']
         for x in result['sessions']:
             date=datetime.fromtimestamp(x['modified_at']).strftime('%b %d')
             title=x['title']
@@ -176,7 +181,7 @@ def render_text(command, result):
                 title = 'First message: '+x['preview'] if x.get('preview') else 'Untitled session · '+x['session_id'][:8]
             if len(title)>72:title=title[:71]+'…'
             lines.append(color('accent',x['source_key'])+'  '+date+'  '+title)
-        lines.append('Preview: history preview --project PROJECT --session KEY')
+        lines.append('Preview: proofpress history preview --project PROJECT --agent '+result['agent']+' --session KEY')
         return "\n".join(lines)
     if command == "history":
         return "History · "+str(result['messages'])+" messages · "+str(result['pending_bytes'])+" bytes pending"+ (" · local import" if result.get('ok') else " · preview only")

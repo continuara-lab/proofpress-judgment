@@ -6,7 +6,7 @@ terminal. Engineering tests only use disposable synthetic owner fixtures.
 ## Install and configure
 
 Run `bash /path/to/proofpress-judgment/install.sh` in the project. Alternatively install
-with `python -m pip install /path/to/proofpress-judgment`, then run `proofpress onboard`.
+with `python -m pip install /path/to/proofpress-judgment`, then run `proofpress onboard --startup --agents codex` with your chosen agent.
 Onboarding previews what capture means, enabled categories, manual review, optional
 project history and hook status. Enter `y` to enable it. Run `proofpress configure`
 to choose capture categories and history permissions later.
@@ -46,8 +46,8 @@ review the exact entry in `/hooks`. Proofpress never writes host trust.
 See [Codex's hook trust documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
 Claude Code uses `.claude/settings.local.json` with `--host claude-code`; verify
-its trust and hook status in that host. This release's installer/trust verification
-focuses on Codex. The previous Claude live check used explicit demo injection.
+its trust and hook status in that host. Cursor uses `.cursor/hooks.json` with
+`--host cursor`. [Host coverage and verification](RUNTIME.md#install-a-host-hook)
 
 For a private decision-model environment file, include `--env-file /path/.env`
 before `--workspace` when installing the hook. Registration stores only the path,
@@ -86,8 +86,9 @@ Restart your agent after removing integration. Prior session context is not eras
 
 ## Import a project
 
-`history project --project PATH --days 7` previews an exact source directory and
-asks before importing. The global `--workspace` selects the destination store;
+`history project --project PATH --agent codex` previews local sessions and
+asks before importing. Use `claude-code` or `cursor` for those agents.
+[Source locations and supported formats](INTAKE.md) The global `--workspace` selects the destination store;
 it can be an isolated sandbox distinct from that source. JSON/agent output and
 noninteractive use require explicit `--confirm`. Invalid sessions are reported
 with reasons; repeat imports resume checkpoints and avoid duplicate excerpts.

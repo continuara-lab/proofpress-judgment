@@ -175,3 +175,70 @@ class IntakeTests(unittest.TestCase):
         self.assertIn('Do not modify generated files',expanded['preview'])
         self.assertNotIn('synthetic-private-token',expanded['preview'])
         self.assertLessEqual(len(expanded['preview']),160)
+
+    def test_claude_session_import_checks_project_and_ignores_nontext(self):
+        from judgment_layer.history import scan, resolve_selection
+        history = self.root / 'claude-projects'
+        directory = history / 'project-slug'
+        directory.mkdir(parents=True)
+        path = directory / 'session.jsonl'
+        meta = {'sessionId': 'claude-id', 'cwd': str(self.root)}
+        records = [
+            {'type': 'queue-operation', 'content': 'Ignore queue metadata'},
+            {'type': 'user', **meta, 'message': {'role': 'user', 'content': 'Prefer public cache.'}},
+            {'type': 'assistant', **meta, 'message': {'role': 'assistant', 'content': [
+                {'type': 'thinking', 'thinking': 'Ignore hidden reasoning'},
+                {'type': 'tool_use', 'input': {'text': 'Ignore tool input'}},
+                {'type': 'text', 'text': 'I will recheck permissions.'},
+            ]}},
+            {'type': 'user', **meta, 'message': {'role': 'user', 'content': [
+                {'type': 'tool_result', 'content': 'Ignore tool output'},
+            ]}},
+        ]
+        path.write_text(''.join(json.dumps(row) + '\n' for row in records))
+        sessions = scan(history, self.root, previews=True, agent='claude-code')['sessions']
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]['preview'], 'Prefer public cache.')
+        self.assertEqual(resolve_selection(history, self.root, 7, sessions[0]['source_key'], agent='claude-code'), str(path))
+        self.assertEqual(scan(history, self.root / 'other', agent='claude-code')['sessions'], [])
+        self.assertEqual(preview(path, self.root, agent='claude-code')['messages'], 2)
+        self.assertEqual(self.s.events(), [])
+        self.op(lambda: ingest(self.s, path, self.root, agent='claude-code'))
+        batch = self.s.events()[-1]['data']['batch']
+        self.assertEqual([m['text'] for m in batch['messages']], ['Prefer public cache.', 'I will recheck permissions.'])
+        self.assertTrue(batch['messages'][0]['source_ref'].startswith('claude-code://claude-id/bytes/'))
+        with path.open('a') as stream:
+            stream.write(json.dumps({**records[1], 'cwd': str(self.root / 'other')}) + '\n')
+        with self.assertRaises(JudgmentError):
+            self.op(lambda: ingest(self.s, path, self.root, agent='claude-code'))
+        self.assertEqual(self.s.events()[-1]['data']['batch']['offset'], batch['offset'])
+
+    def test_cursor_project_import_resumes_with_native_transcripts(self):
+        import re
+        from judgment_layer.cli import parser, run
+
+        history = self.root / 'cursor-projects'
+        slug = re.sub(r'[^a-zA-Z0-9-]', '-', str(self.root).lstrip('/'))
+        directory = history / slug / 'agent-transcripts' / 'cursor-id'
+        directory.mkdir(parents=True)
+        path = directory / 'cursor-id.jsonl'
+        user = {'role': 'user', 'message': {'content': [{'type': 'text', 'text': 'Cache public results.'}]}}
+        assistant = {'role': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Recheck private access.'}]}}
+        partial = json.dumps(assistant)
+        path.write_text(json.dumps(user) + '\n' + partial)
+        args = ['--workspace', str(self.s.root), 'history', 'project', '--agent', 'cursor',
+                '--project', str(self.root), '--root', str(history)]
+        preview_result = run(parser().parse_args(args))
+        self.assertEqual(preview_result['sessions'], 1)
+        self.assertFalse(preview_result['imported'])
+        self.assertEqual(self.s.events(), [])
+        self.assertEqual(run(parser().parse_args(args + ['--confirm']))['pending_bytes'], len(partial))
+        with path.open('a') as stream:
+            stream.write('\n' + json.dumps({'type': 'turn_ended', 'status': 'completed'}) + '\n')
+        self.assertEqual(run(parser().parse_args(args + ['--confirm']))['messages'], 1)
+        self.assertEqual(run(parser().parse_args(args + ['--confirm']))['messages'], 0)
+        imported = [event['data']['batch'] for event in self.s.events() if event['kind'] == 'history_imported']
+        self.assertEqual([batch['agent'] for batch in imported], ['cursor', 'cursor'])
+        self.assertTrue(imported[1]['messages'][0]['source_ref'].startswith('cursor://cursor-id/bytes/'))
+        with self.assertRaises(JudgmentError):
+            self.op(lambda: ingest(self.s, path, self.root / 'other', agent='cursor'))

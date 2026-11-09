@@ -15,11 +15,12 @@ No automatic listener is installed.
 - `proofpress pause --confirm`, `resume --confirm` and `unbind ID --confirm` explicitly change protection.
 - `proofpress uninstall --confirm` removes managed integration and retains the store.
 
-For project history, run `history project --project PATH --days 7`. It prompts
+For project history, run `history project --project . --agent codex`. Use
+`claude-code` or `cursor` for their local sessions. The CLI prompts
 before local import. Then `consolidate --scope SCOPE --model-assessment --all`
 explicitly sends pending excerpts to Codex and creates candidates. Omit `--all`
 for a single batch. Manual review remains required. Model failure stops the run;
-completed batches are preserved and retries resume.
+completed batches are preserved and retries resume. [Import guide](INTAKE.md)
 
 [End-to-end local trial](LOCAL-ALPHA.md) explains trust, recovery and boundaries.
 The explicit commands below remain available for scripts; owner actions require
@@ -117,9 +118,9 @@ Conditions are conservative exact-scalar equality checks against supplied facts;
 scope is exact, not semantic similarity. Missing facts fail closed. The caller
 must obtain truthful facts from the actual environment. A model saying a fact is
 true does not verify it. `check` and an external tool action are not atomic, and
-this release installs **no runtime hooks or action interception**.
+it is separate from [host hook enforcement](RUNTIME.md).
 
-## Import capture history
+## Import a TRACE record
 
 ```sh
 proofpress import --session examples/trace-session.json \
@@ -137,9 +138,8 @@ connection. See [upstream mechanisms](UPSTREAM.md).
 ## Defaults and trust
 
 `proofpress policy` displays `.judgment/config.json`. Capture-origin filters are
-enforced; prose capture guidance is for the agent to follow. This version does
-not extract decisions from free-form chat automatically. A user or an agent must
-write an explicit record or invoke the TRACE importer.
+enforced; prose capture guidance is for the agent to follow. Agents can propose explicit records during a session. To extract candidates
+from selected local sessions, use the separate [history workflow](INTAKE.md).
 
 Only manual admission is implemented. An `automatic` configuration is rejected,
 not silently enabled. Future Owner-policy admission requires a separate design;

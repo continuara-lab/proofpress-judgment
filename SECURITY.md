@@ -19,8 +19,10 @@ as an adversarial approval boundary or production transaction gateway.
 - The hash chain detects accidental corruption; it is not externally anchored or
   signed. A local writer can reconstruct the entire database and hash chain.
 - Keep workspace data private. Local lifecycle commands do not fetch evidence URLs.
-  Explicit history extraction sends selected excerpts to Codex; optional decision
-  model assessments send selected judgments/output to the configured provider.
+  Importing local Codex, Claude Code or Cursor sessions stores excerpts locally.
+  Explicit history extraction sends selected excerpts to Codex regardless of
+  source agent. Optional decision model assessments send selected material to the
+  configured provider.
   Treat credential redaction as best effort. Installation downloads dependencies.
 - Reuse is advice. `check` is a point-in-time eligibility check; an external
   action can race a subsequent withdrawal. There is no claim of non-bypassable

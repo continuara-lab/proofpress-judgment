@@ -24,8 +24,9 @@ the subcommand to select a store inside that project.
 ## Agent entry points
 
 These paths follow the linked host documentation, checked November 7, 2026.
-The table lists skill-directory compatibility. Install action hooks separately
-for Codex, Claude Code or Cursor. [Runtime setup](RUNTIME.md)
+The table lists skill-directory compatibility. Codex, Claude Code and Cursor
+also support local history import and separately installed action hooks.
+[Import sessions](INTAKE.md) · [Enforce judgments](RUNTIME.md)
 
 Each path below contains `proofpress/SKILL.md` plus the same bundled workflow,
 coding example and AJF schema. Shared paths are written once.

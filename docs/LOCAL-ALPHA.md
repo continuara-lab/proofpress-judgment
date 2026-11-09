@@ -1,12 +1,12 @@
-# Test the local alpha
+# Try the local workflow
 
 Use an ordinary project in an isolated checkout. Keep real admissions in your own
 terminal. Engineering tests only use disposable synthetic owner fixtures.
 
 ## Install and configure
 
-Run `bash /path/to/judgment-layer/install.sh` in the project. Alternatively install
-with `python -m pip install /path/to/judgment-layer`, then run `proofpress onboard`.
+Run `bash /path/to/proofpress-judgment/install.sh` in the project. Alternatively install
+with `python -m pip install /path/to/proofpress-judgment`, then run `proofpress onboard`.
 Onboarding previews what capture means, enabled categories, manual review, optional
 project history and hook status. Enter `y` to enable it. Run `proofpress configure`
 to choose capture categories and history permissions later.

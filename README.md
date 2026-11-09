@@ -6,7 +6,7 @@ Everything is recorded. Your agent still repeats the same mistakes.
 Proofpress helps carry your guidance and agent experience into later work—as
 judgments you can review, reuse and update.
 
-**This is the local Proofpress CLI, currently in private alpha.**
+**The open-source judgment layer for agents.**
 [Website](https://proofpress.dev) · [Quick start](#quick-start) ·
 [Agent instructions](docs/AGENT-SETUP.md) · [Documentation](#documentation)
 
@@ -14,30 +14,43 @@ judgments you can review, reuse and update.
 
 A choice worth carrying forward, with its reasons and boundaries. For example:
 
-> **Change the schema. Regenerate the client.**
-> **Why:** Hand edits to generated files are overwritten.
-> **When:** Changing generated clients in this project.
+> **Cache search results. Recheck file access.**
+> **Why:** Older results are acceptable. Exposing private files is not.
+> **When:** Public results and previews.
+> **Excludes:** Private content and access checks.
 
 The same pattern works for design standards, sales qualification and slide reviews.
 Capture your judgments and the agent's own consequential choices. Review what
-should guide later work; revise or withdraw it when conditions change.
+should guide later work; revise or withdraw it when conditions change. If search
+later powers urgent alerts, update the judgment: **Cache public results. Keep
+urgent alerts live.**
 
 ## Quick start
 
-Requires macOS or Linux, Git, and access to this private repository.
-The installer handles Python and the CLI. Already using the older Proofpress CLI?
+Requires macOS or Linux and Git. The installer handles Python and the CLI. Already using the older Proofpress CLI?
 Use a [separate environment](docs/INSTALL.md#keep-existing-proofpress-installations-separate).
 
-**Run these in the project where you use your agent:**
+**Run this in the project where you use your agent:**
 
 ```sh
-git clone https://github.com/continuara-lab/judgment-layer.git "$HOME/.local/share/proofpress-cli"
-bash "$HOME/.local/share/proofpress-cli/install.sh"
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash
 ```
 
 This enables Codex guidance and creates a local `.judgment/` folder for records,
 review history and settings. Follow any PATH instruction the installer prints.
-For another agent, see [agent setup](docs/AGENTS.md).
+Choose an agent below, then start a fresh session in this project.
+
+## Connect your coding agent
+
+| Agent | Enable project guidance | Optional enforcement |
+| --- | --- | --- |
+| **Codex** | Enabled by the installer | `proofpress hooks install --host codex --confirm`, then review `/hooks` in Codex |
+| **Claude Code** | `proofpress onboard --agents claude-code` | `proofpress hooks install --host claude-code --confirm`, then review hooks in Claude Code |
+| **Cursor** | `proofpress onboard --agents cursor` | Guidance and retrieval; no Cursor hook installer is provided |
+
+Confirm onboarding in your terminal. Guidance helps agents propose and retrieve
+judgments; hooks check supported actions before execution.
+[Integration details](docs/AGENTS.md)
 
 Start a new agent session in the same project and say:
 

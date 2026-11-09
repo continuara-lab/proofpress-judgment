@@ -1,7 +1,6 @@
 # Install Proofpress CLI
 
-This repository contains the new local CLI. It is currently private: Git needs
-authenticated access before installation. Supported installer platforms are macOS
+This repository contains the new local CLI. The repository is public. Supported installer platforms are macOS
 and Linux. The runtime is Python; no npm package is needed.
 
 ## Install in your project
@@ -9,11 +8,9 @@ and Linux. The runtime is Python; no npm package is needed.
 Run from the project where your agent works:
 
 ```sh
-git clone https://github.com/continuara-lab/judgment-layer.git "$HOME/.local/share/proofpress-cli"
-bash "$HOME/.local/share/proofpress-cli/install.sh"
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash
 ```
 
-If you already cloned it, skip the clone and run the installer from that location.
 The script installs uv if needed, installs the Python CLI in an isolated tool
 environment and enables Codex guidance in the current project. It does not change
 your shell profile. Follow any printed PATH instruction, then check:
@@ -32,10 +29,10 @@ or import history. [Hook setup](RUNTIME.md)
 
 ## Choose another agent
 
-For a fresh project, pass onboarding options to the installer:
+To choose Claude Code after the default installation, run:
 
 ```sh
-bash "$HOME/.local/share/proofpress-cli/install.sh" --agents claude-code --owner human:me --confirm
+proofpress onboard --agents claude-code
 ```
 
 To add agent guidance after installation, preview in that project:
@@ -51,14 +48,14 @@ capture. [All agent entry points](AGENTS.md)
 
 The public Proofpress repository and this CLI both expose a command named
 `proofpress`. They use different distributions, APIs and stores. Do not replace
-an existing installation merely to try this alpha.
+an existing installation merely to try this CLI.
 
 If you already use the public implementation, create a separate virtual
 environment in your trial project. Requires uv:
 
 ```sh
 uv venv --python 3.11 .venv-proofpress-cli
-uv pip install --python .venv-proofpress-cli/bin/python "git+https://github.com/continuara-lab/judgment-layer.git"
+uv pip install --python .venv-proofpress-cli/bin/python "git+https://github.com/continuara-lab/proofpress-judgment.git"
 source .venv-proofpress-cli/bin/activate
 proofpress onboard
 ```
@@ -67,14 +64,12 @@ Activate that environment when using this CLI. Activation changes which executab
 your shell resolves; it does not migrate data. Do not run it against an older
 Proofpress store. [Repository map](REPOSITORIES.md)
 
-## Update the alpha
+## Update the CLI
 
-For the installer path, update the checkout and rerun the installer from your
-working project:
+Rerun the installer from your working project:
 
 ```sh
-git -C "$HOME/.local/share/proofpress-cli" pull --ff-only
-bash "$HOME/.local/share/proofpress-cli/install.sh"
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash
 ```
 
 Existing stores retain their records and owner. Refreshed skill files are backed
@@ -88,11 +83,14 @@ hooks and unchanged installed skills. Edited skill files and the judgment store
 remain. Restart your agent after removal. For uv tool installation, remove the
 package with `uv tool uninstall judgment-layer` after removing integration.
 
-## About curl
+## Install from source
 
-An anonymous curl command cannot download this private repository. No public
-installer URL or PyPI/npm release is currently available. Once distribution is
-public, a curl script can install the same Python runtime; it does not require a
-runtime rewrite or a different product name.
+If you prefer to inspect the script before running it:
 
+```sh
+git clone https://github.com/continuara-lab/proofpress-judgment.git "$HOME/.local/share/proofpress-cli"
+```
+
+Then, from your working project, run
+`bash "$HOME/.local/share/proofpress-cli/install.sh"`.
 For source development and checks, see the [CLI guide](CLI.md).

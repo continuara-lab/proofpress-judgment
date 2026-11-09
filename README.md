@@ -158,13 +158,18 @@ Restart the agent and complete its project and hook trust flow. Run
 `proofpress doctor` to inspect configuration and the last observed check.
 [Tool coverage and recovery](docs/RUNTIME.md)
 
-### Optional Jev checks
+### Optional Jev checks — bring your own key
 
-Jev can give admission advice against your review policy, screen for conflicts
-with approved guidance, or check a complete new file before a covered write.
-Use a TypeSafe API key to enable model checks. Manual review and local path and condition checks
-work without a key. [Set up Jev and run a check](docs/RUNTIME.md#set-up-jev) ·
-[Environment template](.env.example)
+**Bring your own TypeSafe API key** to use Jev for judgments that need
+interpretation of meaning, context or exceptions.
+
+- **Review a candidate.** Assess whether its evidence and scope meet your project's review criteria, then give you an approval recommendation.
+- **Check for conflicts.** Assess whether a proposed judgment contradicts approved guidance under overlapping conditions.
+- **Check text before writing.** When you enable a model check in a hook, Jev can review the full text of a proposed new file against an approved judgment. For example, pause a report that claims tests passed when they have not been run.
+
+You control admission and choose which actions get a hook check. Local path
+and condition checks work without a key.
+[Set up Jev](docs/RUNTIME.md#set-up-jev) · [Environment template](.env.example)
 
 ## Documentation
 

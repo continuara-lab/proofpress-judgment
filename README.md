@@ -1,119 +1,124 @@
 # Proofpress
 
-**Your team's judgment. Built into your agents.**
+**Your judgment. Built into your agents.**
 
-You corrected your agent. It acknowledged. Days later, the same mistake—even
-with the guidance in memory and skills.
+Everything is recorded. Your agent still repeats the same mistakes.
+Proofpress helps carry your guidance and agent experience into later work—as
+judgments you can review, reuse and update.
 
-Proofpress turns your guidance and agent experience into judgments you can
-review, reuse, revise and enforce on selected actions.
+**This is the local Proofpress CLI, currently in private alpha.**
+[Website](https://proofpress.dev) · [Quick start](#quick-start) ·
+[Agent instructions](docs/AGENT-SETUP.md) · [Documentation](#documentation)
 
-## Start in your project
+## What is a judgment?
+
+A choice worth carrying forward, with its reasons and boundaries. For example:
+
+> **Change the schema. Regenerate the client.**
+> **Why:** Hand edits to generated files are overwritten.
+> **When:** Changing generated clients in this project.
+
+The same pattern works for design standards, sales qualification and slide reviews.
+Capture your judgments and the agent's own consequential choices. Review what
+should guide later work; revise or withdraw it when conditions change.
+
+## Quick start
+
+Requires macOS or Linux, Git, and access to this private repository.
+The installer handles Python and the CLI. Already using the older Proofpress CLI?
+Use a [separate environment](docs/INSTALL.md#keep-existing-proofpress-installations-separate).
+
+**Run these in the project where you use your agent:**
 
 ```sh
-bash /path/to/judgment-layer/install.sh
+git clone https://github.com/continuara-lab/judgment-layer.git "$HOME/.local/share/proofpress-cli"
+bash "$HOME/.local/share/proofpress-cli/install.sh"
 ```
 
-The installer handles Python and the CLI, then enables Codex guidance in the
-current project. Private alpha: authenticated repository access is required.
-[Other installation options](docs/INSTALL.md)
+This enables Codex guidance and creates a local `.judgment/` folder for records,
+review history and settings. Follow any PATH instruction the installer prints.
+For another agent, see [agent setup](docs/AGENTS.md).
+
+Start a new agent session in the same project and say:
+
+> Use Proofpress. Propose useful judgments from my guidance and your work, with
+> reasons, sources and conditions. Use approved judgments before related tasks.
+> Leave approval to me.
+
+When your agent proposes a judgment, review it in your terminal:
 
 ```sh
-proofpress configure       # Choose what the agent may propose
-proofpress doctor          # Check this project's actual integration state
+proofpress review
 ```
 
-Start a new agent session and ask:
+Choose a candidate from the numbered inbox. Read it, edit it if needed, then approve
+or reject it. **You approve before reuse.** Capture is agent guidance, not an
+automatic listener for every message.
 
-> Use Proofpress. Propose useful judgments from my guidance and your experience.
-> Retrieve approved judgments before related work.
+## The everyday loop
 
-Capture is agent guidance; it does not listen to every message in the background.
-You approve before reuse. [Connect another agent](docs/AGENTS.md)
-
-## Review once. Reuse when it applies.
-
-| Work | Judgment |
+| Step | What you do |
 | --- | --- |
-| Coding | Change the schema; regenerate the client. |
-| Design | Use our existing components before adding new ones. |
-| Sales | Verify a buying signal before using it in outbound. |
-| Slides | One claim per slide; show the evidence. |
+| **Capture & review** | Keep a useful judgment, check its basis and choose where it applies. |
+| **Reuse** | Supply approved, current judgments to later tasks whose conditions match. |
+| **Learn** | Attach outcome observations to the exact version for later inspection. |
+| **Update** | Revise or withdraw guidance as evidence and conditions change. |
 
 ```sh
-proofpress inbox
-proofpress review ID        # Read, edit, choose enforcement, then approve
-proofpress edit ID          # Create a new candidate revision in your editor
+proofpress configure     # Choose what the agent may propose
+proofpress edit ID       # Edit in your preferred editor; creates a new candidate
+proofpress withdraw ID   # Stop an admitted judgment from being reused
+proofpress doctor        # Inspect skills, hooks and active bindings
 ```
 
-Review shows the judgment, reasons, situation, conditions, sources and proposed
-enforcement together. Approval and the displayed binding commit together.
-An edit creates a candidate; it never carries approval forward.
+Sources, versions and review history stay inspectable. An edit needs fresh review.
+Reuse currently matches explicit scopes and factual conditions.
+[Full walkthrough](docs/LOCAL-ALPHA.md)
 
-## Bring in project history
+<details>
+<summary><strong>Import a project's past Codex sessions</strong></summary>
 
 ```sh
 proofpress history project --project /path/to/project --days 7
 proofpress consolidate --scope coding --model-assessment --all
-proofpress inbox
+proofpress review
 ```
 
-Import asks before saving redacted Codex excerpts locally. Extraction explicitly
-sends those excerpts to Codex, follows your capture settings, and creates candidates
-for review. Redaction does not guarantee removal of all sensitive information.
-Use a narrow scope and inspect conditions before admitting a historical judgment.
-[History and capture settings](docs/INTAKE.md)
+Import asks before storing redacted excerpts locally. Extraction sends those
+excerpts to Codex and follows your capture settings. It produces candidates for
+review. Redaction may miss sensitive details. [History guide](docs/INTAKE.md)
 
-## Enforce selected actions
+</details>
 
-Choose **Enforcement** during `proofpress review ID`, then install a project hook:
+<details>
+<summary><strong>Enforce a judgment with a hook</strong></summary>
+
+Choose **Enforcement** during review to inspect and approve the proposed protection
+together with the judgment. Then install the host hook:
 
 ```sh
 proofpress hooks install --host codex             # Preview
 proofpress hooks install --host codex --confirm   # Install
 ```
 
-Restart Codex, trust the project, and review the exact hook in `/hooks`.
-Installation does not grant host trust. Claude Code registration is also available
-with `--host claude-code`.
+Restart Codex, trust the project and review the hook in `/hooks`. Supported checks
+cover protected paths, lifecycle/conditions and optional decision model assessment.
+Shell, MCP and unsupported routes pause while bindings are active. These are
+cooperative local hooks; host trust and tool coverage matter.
+[Enforcement and recovery](docs/RUNTIME.md)
 
-Hooks check protected paths before supported tool actions. They can block generated
-file edits, check lifecycle and factual conditions, or assess complete new-file
-content with a configured decision model. Shell, MCP and unsupported routes pause
-while bindings are active. A check passing is separate from task success.
+</details>
 
-```sh
-proofpress doctor
-proofpress pause --confirm          # Explicitly suspend enforcement
-proofpress resume --confirm
-proofpress unbind ID --confirm       # Explicitly remove this protection
-proofpress uninstall --confirm       # Remove integration; keep the judgment store
-```
+## Documentation
 
-Withdrawal or supersession makes old bindings block until you review/rebind or
-explicitly unbind. These are cooperative local hooks, not a security boundary
-against the same OS user or disabled host hooks. [Runtime and recovery](docs/RUNTIME.md)
+[Installation](docs/INSTALL.md) · [Agent setup](docs/AGENT-SETUP.md) ·
+[CLI reference](docs/CLI.md) · [AJF records](docs/AJF.md) ·
+[Evaluation](evals/README.md) · [Security](SECURITY.md) · [License](LICENSE)
 
-## Inspect what applies
+For agents: read the installed `proofpress` skill for this project's workspace
+and capture settings. Use `--format agent` for compact output; `--json` expands
+full records. Agents propose and retrieve; humans control admission and enforcement.
 
-```sh
-proofpress match --scope coding --facts task-facts.json
-```
-
-Reuse checks exact scope, explicit facts, lifecycle, dependencies and conflict
-holds. It does not infer general task equivalence from text similarity. Missing
-facts exclude a judgment. Optional model assessment can flag nuanced conflicts;
-it never approves a candidate.
-
-Human output stays concise with bold brand colors. `--format agent` supplies
-compact JSON; `--json` expands full records. `NO_COLOR=1` disables styling.
-
-[CLI guide](docs/CLI.md) · [AJF format](docs/AJF.md) ·
-[Local testing](docs/LOCAL-ALPHA.md) · [Security](SECURITY.md) ·
-[Evaluation plan](evals/README.md)
-
-Local alpha · Manual admission · Apache-2.0
-
-The Python distribution remains `judgment-layer`; the product command is
-`proofpress`. Use an isolated environment alongside older Proofpress installations.
-Benefits over well-maintained memory notes remain to be measured.
+This repository develops the personal CLI. The [public Proofpress repository](https://github.com/chenmingtang830/proofpress)
+contains the existing MCP/server implementation and research. Their installation
+commands and stores differ. [Repository map](docs/REPOSITORIES.md)

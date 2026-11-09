@@ -27,7 +27,9 @@ not infer that every Cursor mode emits an event. Remove the managed entry with
 ## Covered checks
 
 The adapter recognizes native Write, Edit/StrReplace, Delete and Read file targets.
-Relative paths resolve against the event's explicit absolute working directory.
+Relative paths resolve against the event's explicit absolute working directory
+or its single declared workspace root when the CLI omits `cwd`. Multiple roots
+without `cwd` remain ambiguous and pause.
 Ambiguous target/content aliases, missing inputs and unknown action routes pause.
 Shell and MCP routes remain unsupported while protection is active; they cannot
 be used to bypass a protected file write.
@@ -56,7 +58,12 @@ generated-write denial; stale-binding denial after revision; successful write af
 explicit rebinding; denial after withdrawal. Each must produce a Cursor hook record
 and the expected file result. `--force` permits headless writes; `--trust` applies
 only to this synthetic workspace. It never opens your project's judgment store.
-Real-host validation is pending until an authenticated Cursor run completes.
+[Real Cursor CLI verification](verification/live-cursor-hooks-2026-11-09.json)
+passed all four scenarios with CLI `2026.11.05-86047df`. Each scenario recorded a
+native Write check and the expected file result in a new CLI invocation. The
+initial run exposed that CLI events omit `cwd`; the adapter now uses a single
+explicit `workspace_roots` entry. These results cover the CLI, not independent IDE
+or Tab verification.
 
 The official CLI command is `agent`; this runner defaults to
 `~/.local/bin/cursor-agent` so it does not accidentally invoke a different vendor's

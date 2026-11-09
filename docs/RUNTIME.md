@@ -3,8 +3,9 @@
 `proofpress hooks install --host cursor --confirm` registers a native `preToolUse`
 handler in `.cursor/hooks.json`, preserving other handlers. The adapter uses the
 same review-bound runtime checks and returns Cursor's permission schema. Synthetic
-adapter tests pass; real-host validation requires a logged-in Cursor CLI and is
-not yet claimed. [Cursor setup and coverage](CURSOR.md).
+adapter tests and four real Cursor CLI lifecycle scenarios passed;
+[verification receipt](verification/live-cursor-hooks-2026-11-09.json). IDE and Tab
+coverage have not been independently verified. [Cursor setup and coverage](CURSOR.md).
 
 # Installed Codex verification
 

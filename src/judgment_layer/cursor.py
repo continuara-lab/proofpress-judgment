@@ -12,6 +12,11 @@ def normalize(event):
     if not isinstance(event,dict) or event.get('hook_event_name')!='preToolUse':
         raise JudgmentError('Expected a native Cursor preToolUse event')
     tool=event.get('tool_name');args=event.get('tool_input');cwd=event.get('cwd')
+    # Cursor CLI omits cwd in observed native events. Use a single explicit host
+    # workspace root; multiroot ambiguity must not be guessed from task prose.
+    if cwd is None:
+        roots=event.get('workspace_roots')
+        if isinstance(roots,list) and len(roots)==1:cwd=roots[0]
     if not isinstance(tool,str) or not isinstance(args,dict) or not isinstance(cwd,str) or not Path(cwd).is_absolute():
         raise JudgmentError('Missing Cursor tool, input or absolute working directory')
     result={'tool_name':tool,'tool_input':args,'cwd':cwd,'host':'cursor','session_id':event.get('conversation_id')}

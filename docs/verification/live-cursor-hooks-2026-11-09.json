@@ -1,0 +1,42 @@
+{
+  "at": "2026-11-09T08:51:33.263886Z",
+  "synthetic_only": true,
+  "host": "cursor-cli",
+  "version": "2026.11.05-86047df",
+  "flags": [
+    "--print",
+    "--force",
+    "--trust (synthetic workspace only)"
+  ],
+  "project_local_preToolUse": true,
+  "results": [
+    {
+      "scenario": "generated_write_blocked",
+      "passed": true,
+      "write_checks": 1,
+      "file_changed": false,
+      "expected_change": false
+    },
+    {
+      "scenario": "old_binding_stale_after_revision",
+      "passed": true,
+      "write_checks": 1,
+      "file_changed": false,
+      "expected_change": false
+    },
+    {
+      "scenario": "rebound_revision_allows_real_write",
+      "passed": true,
+      "write_checks": 1,
+      "file_changed": true,
+      "expected_change": true
+    },
+    {
+      "scenario": "withdrawn_revision_blocks_write",
+      "passed": true,
+      "write_checks": 1,
+      "file_changed": false,
+      "expected_change": false
+    }
+  ]
+}

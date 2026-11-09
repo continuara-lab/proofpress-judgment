@@ -37,6 +37,11 @@ class CursorTests(unittest.TestCase):
     def test_ambiguous_or_invalid_events_block(self):
         for value in (None,{},self.event(args={'path':'generated/a','file_path':'generated/b'}),self.event(args={'path':'generated/a','contents':'a','content':'b'})):
             self.assertEqual(handle(self.ws,value)['permission'],'deny')
+    def test_native_cli_workspace_root_replaces_missing_cwd_only_when_unambiguous(self):
+        value=self.event();value.pop('cwd');value['workspace_roots']=[str(self.root)]
+        self.assertEqual(normalize(value)['cwd'],str(self.root))
+        value['workspace_roots'].append(str(self.root/'another'))
+        self.assertEqual(handle(self.ws,value)['permission'],'deny')
     def test_symlink_escape_and_partial_edits_block(self):
         outside=Path(self.tmp.name).parent/'synthetic-outside'
         (self.root/'generated').symlink_to(outside,target_is_directory=True)

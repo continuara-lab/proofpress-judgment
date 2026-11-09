@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "judgment-layer"
-version = "0.1.0a5"
+version = "0.1.0a6"
 description = "Carry human and agent judgment into later work with local review, reuse and lifecycle controls"
 readme = "README.md"
 requires-python = ">=3.11"

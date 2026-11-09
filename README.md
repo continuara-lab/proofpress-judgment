@@ -52,7 +52,8 @@ curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/
 curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents cursor
 ```
 
-Start a fresh session in the project and give your agent a task. The project
+The installer shows the project policy. Use it as shown or customize what the
+agent may propose. Start a fresh session in the project and give your agent a task. The project
 instructions tell it when to look up approved judgments and propose new ones.
 [Commands for other agents](docs/AGENTS.md#install-by-agent)
 
@@ -74,6 +75,16 @@ An agent proposes a judgment from work in a session. You review it once. Later
 sessions can look up the current approved version when the scope and conditions
 match. You can record outcomes and revise or withdraw guidance as conditions change.
 [Architecture and storage](docs/ARCHITECTURE.md)
+
+### Three checks in the workflow
+
+| Step | What Proofpress checks | Who decides |
+| --- | --- | --- |
+| **Admission review** | Local checks flag invalid or conflicting candidates. Optional Jev advice checks whether the evidence and scope meet your review policy. | You approve the exact revision. |
+| **Retrieval** | SQLite stores the records. The CLI filters approved versions by exact scope, task facts, validity and dependencies. | The agent receives eligible guidance for the task. |
+| **Tool enforcement** | An optional pre-tool hook checks a covered action against a specific approved version and binding. | The hook can pause the action. The host retains its own permissions. |
+
+[Configure model review](docs/INTAKE.md#review-policy) · [How retrieval works](docs/ARCHITECTURE.md#how-retrieval-works) · [Enforcement](#enforce-judgments)
 
 ## Agent Judgment Format (AJF)
 
@@ -149,9 +160,9 @@ Restart the agent and complete its project and hook trust flow. Run
 
 ### Optional Jev checks
 
-Jev can screen a proposed judgment for conflicts with approved guidance or
-check a complete new file before a covered write. Use a TypeSafe API key
-when you want either check. Manual review and local path and condition checks
+Jev can give admission advice against your review policy, screen for conflicts
+with approved guidance, or check a complete new file before a covered write.
+Use a TypeSafe API key to enable model checks. Manual review and local path and condition checks
 work without a key. [Set up Jev and run a check](docs/RUNTIME.md#set-up-jev) ·
 [Environment template](.env.example)
 

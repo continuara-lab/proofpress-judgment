@@ -44,7 +44,7 @@ def parser():
     s.add_argument("--owner", required=True, help="Self-asserted local human:<name> identity")
     s = sub.add_parser("capture", help="Store an explicit AJF candidate; never admits")
     s.add_argument("--from", dest="source", required=True)
-    s.add_argument("--model-assessment", "--decision-model", dest="semantic", action="store_true", help="Assess this candidate using your configured decision model")
+    s.add_argument("--model-assessment", "--decision-model", dest="semantic", action="store_true", help="Screen this candidate for conflicts using your configured decision model")
     s.add_argument("--semantic", dest="semantic", action="store_true", help=argparse.SUPPRESS)
     s = sub.add_parser("import", help="Import one captured judgment for review")
     s.add_argument("--session", required=True)
@@ -139,6 +139,11 @@ def parser():
     s.add_argument("id")
     s = sub.add_parser("review-assist", help="Deterministic and model-assisted review; never admits")
     s.add_argument("id")
+    s = sub.add_parser("review-policy", help="Inspect or configure project model review")
+    s.add_argument("--mode", choices=["manual", "on-capture"])
+    s.add_argument("--criteria", type=Path, help="Read project review criteria from a text file")
+    s.add_argument("--evidence", choices=["candidate", "referenced-history"])
+    s.add_argument("--confirm", action="store_true", help="Save policy and consent to its model inputs")
     s = sub.add_parser("history", help="Import local Codex, Claude Code or Cursor sessions")
     s.add_argument("action", choices=["scan", "preview", "import", "project"])
     selector=s.add_mutually_exclusive_group()
@@ -177,7 +182,7 @@ def run(args):
         if not args.id: return review_inbox(args.workspace)
         return interactive_review(args.workspace,args.id)
     if args.command == "onboard":
-        from .intake import onboard, DEFAULT_POLICY
+        from .intake import onboard
         selected = None
         if args.triggers is not None or args.history is not None or args.extraction is not None:
             selected = {}
@@ -253,6 +258,24 @@ def run(args):
             candidates=extract(batch['data']['batch']['messages'],current_policy) if batch else []
             with store.transaction():
                 return consolidate(store,args.scope,True,(batch['event_id'],candidates) if batch else None)
+        if args.command == "review-assist":
+            from .review_policy import review_assist
+            return review_assist(store, args.id)
+        if args.command in {"capture", "revise"}:
+            from .review_policy import review_assist
+            with store.transaction():
+                if args.command == "capture":
+                    item = store.capture(load(args.source))
+                    if args.semantic:
+                        from .runtime import screen
+                        screen(store, item)
+                        item = store.describe(item["record"])
+                else:
+                    item = store.capture(load(args.source), args.id, args.reason, args.base_digest)
+            advice = review_assist(store, item["id"], item["digest"], automatic=True)
+            if advice is not None:
+                item["review_advice"] = advice
+            return item
         with store.transaction():
             if args.command == 'doctor':
                 from .hosts import doctor
@@ -303,9 +326,17 @@ def run(args):
             if args.command == "observations":
                 store.record(args.id)
                 return {"observations":[e for e in store.events() if e['kind']=='outcome_observed' and e.get('judgment_id')==args.id]}
-            if args.command == "review-assist":
-                from .intake import review_assist
-                return review_assist(store,args.id)
+            if args.command == "review-policy":
+                from .review_policy import review_policy, update_review_policy
+                changes = {}
+                if args.mode is not None:
+                    changes["mode"] = args.mode.replace("-", "_")
+                if args.criteria is not None:
+                    changes["criteria"] = args.criteria.read_text().strip()
+                if args.evidence is not None:
+                    changes["evidence"] = args.evidence.replace("-", "_")
+                value = update_review_policy(store, changes, args.confirm) if changes else review_policy(store)
+                return {"review_policy": value}
             if args.command == "history":
                 from .history import ingest, scan
                 if args.action == 'project':
@@ -331,17 +362,8 @@ def run(args):
             if args.command == "bind":
                 from .runtime import bind
                 return bind(store, load(args.source), args.confirm)
-            if args.command == "capture":
-                item = store.capture(load(args.source))
-                if args.semantic:
-                    from .runtime import screen
-                    screen(store, item)
-                    item = store.describe(item['record'])
-                return item
             if args.command in {"import", "import-trace"}:
                 return store.capture(from_trace(load(args.session), args.event, load(args.template), args.recorded_by))
-            if args.command == "revise":
-                return store.capture(load(args.source), args.id, args.reason, args.base_digest)
             if args.command == "inbox":
                 rows = [store.describe(json.loads(row[0])) for row in store.db.execute(
                     "SELECT body FROM revisions ORDER BY id,version")]
@@ -379,15 +401,9 @@ def main(argv=None):
     try:
         if args.env_file:
             import os
-            allowed = {"TYPESAFE_API_KEY", "PROOFPRESS_SEMANTIC_PROVIDER", "PROOFPRESS_SEMANTIC_MODEL", "PROOFPRESS_DECISION_MODEL_PROVIDER", "PROOFPRESS_DECISION_MODEL"}
-            for line in Path(args.env_file).read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                key, sep, value = line.partition("=")
-                if not sep or key.strip() not in allowed:
-                    raise JudgmentError("Unsupported BYOK environment entry")
-                os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            from .assessment import read_provider_env
+            for key, value in read_provider_env(Path(args.env_file)).items():
+                os.environ.setdefault(key, value)
         result = run(args)
         if args.command == 'history' and args.action == 'project' and not args.confirm and sys.stdin.isatty() and sys.stdout.isatty() and not args.json and args.format == 'text':
             print(render_text('history', result))
@@ -398,17 +414,28 @@ def main(argv=None):
                 print('No history imported.')
                 return 0
         if args.command == "onboard" and not args.confirm and sys.stdin.isatty() and sys.stdout.isatty() and not args.json and args.format == "text":
+            from .interactive import choose_capture_policy
             print(render_text("onboard", result))
-            if input("Enable this configuration? [y/N] ").strip().lower() == "y":
-                import getpass
-                args.confirm = True
-                if args.owner is None:
-                    path = Path(result["workspace"])
-                    args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+            answer = input("[D] Use shown policy  [C] Customize capture  [Q] Cancel: ").strip().lower()
+            if answer == "c":
+                selection = choose_capture_policy(result["capture_policy"], input)
+                if selection is None:
+                    print("No project changes.")
+                    return 0
+                args.triggers = selection["triggers"] or ["none"]
+                args.history = selection["history"]
                 result = run(args)
-            else:
-                print("No change.")
+                print(render_text("onboard", result))
+                answer = input("[D] Enable this policy  [Q] Cancel: ").strip().lower()
+            if answer not in {"d", "y"}:
+                print("No project changes.")
                 return 0
+            import getpass
+            args.confirm = True
+            if args.owner is None:
+                path = Path(result["workspace"])
+                args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+            result = run(args)
         if args.command in {"hook", "managed-hook", "cursor-hook"}:
             print(json.dumps(result, separators=(",", ":")))
             return 0

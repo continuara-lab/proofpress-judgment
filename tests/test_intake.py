@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from judgment_layer.history import ingest, consolidate, preview
-from judgment_layer.intake import onboard, policy, set_policy, observe, review_assist
+from judgment_layer.intake import onboard, policy, set_policy, observe
+from judgment_layer.review_policy import review_assist
 from judgment_layer.model import JudgmentError, digest, validate
 from judgment_layer.store import Store, initialize
 
@@ -112,7 +113,7 @@ class IntakeTests(unittest.TestCase):
     def test_assisted_review_never_approves(self):
         x=self.op(lambda:self.s.capture(self.doc))
         with patch('judgment_layer.assessment.assess',return_value={'choice':'supported'}):
-            result=self.op(lambda:review_assist(self.s,x['id']))
+            result=review_assist(self.s,x['id'])
         self.assertTrue(result['ok']);self.assertEqual(self.s.state(self.s.record(x['id'])),'proposed')
     def test_scope_change_record_rejected_and_mirror_collision_flagged(self):
         self.op(lambda:ingest(self.s,self.file,self.root))
@@ -242,3 +243,82 @@ class IntakeTests(unittest.TestCase):
         self.assertTrue(imported[1]['messages'][0]['source_ref'].startswith('cursor://cursor-id/bytes/'))
         with self.assertRaises(JudgmentError):
             self.op(lambda: ingest(self.s, path, self.root / 'other', agent='cursor'))
+
+    def test_automatic_advice_uses_policy_and_follows_exact_revision(self):
+        from judgment_layer.cli import parser, run
+        from judgment_layer.review_policy import current_advice, update_review_policy
+
+        source = self.root / "candidate.json"
+        source.write_text(json.dumps(self.doc))
+        args = ["--workspace", str(self.s.root)]
+        with patch("judgment_layer.assessment.assess", return_value={"choice": "supported"}) as model:
+            candidate = run(parser().parse_args([*args, "capture", "--from", str(source)]))
+            model.assert_not_called()
+            criteria = "Require the observed failure and a scoped recovery."
+            self.op(lambda: update_review_policy(self.s, {"mode": "on_capture", "criteria": criteria}, True))
+            automatically_reviewed = run(parser().parse_args([*args, "capture", "--from", str(source)]))
+            self.assertEqual(automatically_reviewed["review_advice"]["assessment"]["choice"], "supported")
+            self.assertEqual(automatically_reviewed["state"], "proposed")
+            updated = {**self.doc, "name": "Updated example"}
+            source.write_text(json.dumps(updated))
+            revised = run(parser().parse_args([*args, "revise", candidate["id"], "--from", str(source),
+                                              "--reason", "Synthetic edit", "--base-digest", candidate["digest"]]))
+            packet, question, _ = model.call_args.args
+            self.assertIn(criteria, question)
+            self.assertEqual(set(packet), {"candidate"})
+            self.assertEqual(packet["candidate"]["version"], 2)
+            self.assertEqual(revised["state"], "proposed")
+            self.assertEqual(revised["review_advice"]["policy_version"], 1)
+            self.op(lambda: update_review_policy(self.s, {"criteria": "Narrower criteria."}, True))
+            self.assertEqual(self.op(lambda: current_advice(self.s, revised["record"])), {"status": "stale"})
+            self.assertIsNone(self.op(lambda: current_advice(self.s, candidate["record"])))
+
+    def test_policy_change_during_model_call_does_not_save_advice(self):
+        from judgment_layer.review_policy import current_advice, update_review_policy
+
+        item = self.op(lambda: self.s.capture(self.doc))
+
+        def change_policy(*args, **kwargs):
+            self.op(lambda: update_review_policy(self.s, {"criteria": "New criteria."}, True))
+            return {"choice": "supported"}
+
+        with patch("judgment_layer.assessment.assess", side_effect=change_policy):
+            result = review_assist(self.s, item["id"])
+        self.assertEqual(result["status"], "stale")
+        self.assertIsNone(self.op(lambda: current_advice(self.s, item["record"])))
+
+    def test_local_admission_failure_skips_model(self):
+        candidate = copy.deepcopy(self.doc)
+        candidate["judgment"]["rationale"] = None
+        item = self.op(lambda: self.s.capture(candidate))
+        with patch("judgment_layer.assessment.assess") as model:
+            result = review_assist(self.s, item["id"])
+        model.assert_not_called()
+        self.assertEqual(result["assessment"]["reason"], "deterministic_checks_blocked")
+        self.assertFalse(result["ok"])
+
+    def test_capture_setup_preserves_existing_choices_and_can_cancel(self):
+        from judgment_layer.interactive import choose_capture_policy
+        current = self.op(lambda: policy(self.s))
+        current = {**current, "triggers": ["human_correction"], "history": "none"}
+        inputs = iter(["", "", "", "", ""])
+        with patch("builtins.print"):
+            self.assertEqual(choose_capture_policy(current, lambda _: next(inputs)), current)
+            self.assertIsNone(choose_capture_policy(current, lambda _: "q"))
+        self.assertEqual(self.s.events(), [])
+
+    def test_review_only_sends_referenced_history_when_policy_allows_it(self):
+        from judgment_layer.review_policy import update_review_policy
+
+        self.op(lambda: ingest(self.s, self.file, self.root))
+        messages = self.s.events()[-1]["data"]["batch"]["messages"]
+        candidate = copy.deepcopy(self.doc)
+        candidate["provenance"]["source_refs"] = [messages[0]["source_ref"]]
+        item = self.op(lambda: self.s.capture(candidate))
+        with patch("judgment_layer.assessment.assess", return_value={"choice": "scope_too_broad"}) as model:
+            self.assertEqual(review_assist(self.s, item["id"])["assessment"]["choice"], "revise")
+            self.assertNotIn("source_excerpts", model.call_args.args[0])
+            self.op(lambda: update_review_policy(self.s, {"evidence": "referenced_history"}, True))
+            result = review_assist(self.s, item["id"])
+            self.assertEqual(result["assessment"]["finding"], "scope_too_broad")
+            self.assertEqual(model.call_args.args[0]["source_excerpts"], [messages[0]])

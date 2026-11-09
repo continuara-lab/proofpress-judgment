@@ -33,11 +33,15 @@ def set_policy(store, value, confirmed):
 def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False, startup=False):
     root=Path(project).resolve();path=Path(workspace)
     path=path if path.is_absolute() else root/path
+    from .review_policy import DEFAULT_REVIEW_POLICY, review_policy
     base=dict(DEFAULT_POLICY)
+    advice = dict(DEFAULT_REVIEW_POLICY)
     if path.exists():
         existing=Store(path)
         try:
-            with existing.transaction():base=policy(existing)
+            with existing.transaction():
+                base = policy(existing)
+                advice = review_policy(existing)
         finally:existing.close()
     value={**base,**(selection or {})}
     if startup and confirmed and owner is None and not path.exists():
@@ -50,7 +54,7 @@ def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrad
                 if selection is not None or not any(e['kind']=='capture_policy_set' for e in s.events()):set_policy(s,value,True)
                 value=policy(s)
         finally:s.close()
-    return {**result,'capture_policy':value,'status':'enabled' if confirmed else 'preview',
+    return {**result,'capture_policy':value,'review_policy':advice,'status':'enabled' if confirmed else 'preview',
             'boundary':'Project skill and capture guidance only. No background listener, scheduler, automatic admission, or host hook is installed.'}
 
 
@@ -81,19 +85,3 @@ def observe(store, value):
             return {'ok':True,'event_id':previous[0]['event_id'],'duplicate':True}
     event=store.append('outcome_observed',value['observer'],r,data={'observation':value})
     return {'ok':True,'event_id':event['event_id'],'boundary':'Sourced observation, not verified causality, approval, or proof of reliance.'}
-
-
-def review_assist(store, jid):
-    from .assessment import assess
-    from .runtime import screen
-    r=store.record(jid)
-    deterministic=screen(store,store.describe(r))
-    refs=set(r['provenance']['source_refs'])
-    excerpts=[m for e in store.events() if e['kind']=='history_imported' for m in e['data']['batch']['messages'] if m['source_ref'] in refs]
-    assessment=assess({'candidate':r,'source_excerpts':excerpts},
-        'Assess whether the supplied evidence supports this candidate at its stated scope. If source evidence is absent or insufficient choose unknown. Do not infer human approval.',
-        {'supported':'Evidence supports the bounded candidate.','revise':'Evidence contradicts the candidate or its scope is broader than supported.','unknown':'Evidence is absent or insufficient.'})
-    result={'ok':deterministic['ok'] and assessment['choice']=='supported','id':r['id'],'version':r['version'],'digest':digest(r),
-            'flags':deterministic['flags'],'assessment':assessment,'boundary':'Review assistance only. Manual admission remains required.'}
-    store.append('review_assessed','agent:review-assistant',r,data={'result':result})
-    return result

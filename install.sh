@@ -31,7 +31,11 @@ judgment_bin="$("$judgment_uv" tool dir --bin)"
 if [[ $# -eq 0 && -e .judgment ]]; then
   set -- --upgrade
 fi
-"$judgment_bin/proofpress" onboard --startup --confirm "$@"
+if [[ -t 1 ]] && ( : </dev/tty ) 2>/dev/null; then
+  "$judgment_bin/proofpress" onboard --startup "$@" </dev/tty
+else
+  "$judgment_bin/proofpress" onboard --startup --confirm "$@"
+fi
 case ":$PATH:" in
   *":$judgment_bin:"*) ;;
   *) printf '\nAdd the CLI to your shell PATH: export PATH="%s:$PATH"\n' "$judgment_bin" ;;

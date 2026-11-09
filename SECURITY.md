@@ -24,6 +24,10 @@ as an adversarial approval boundary or production transaction gateway.
   source agent. Optional decision model assessments send selected material to the
   configured provider.
   Treat credential redaction as best effort. Installation downloads dependencies.
+- Advisory model review can run after capture and revision when explicitly
+  enabled in the project review policy. It sends the candidate and criteria.
+  Referenced imported excerpts are sent only when that evidence option is enabled.
+  Model advice does not grant admission.
 - Reuse is advice. `check` is a point-in-time eligibility check; an external
   action can race a subsequent withdrawal. There is no claim of non-bypassable
   enforcement, atomic external writes or distributed revocation.

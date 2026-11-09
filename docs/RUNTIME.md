@@ -64,7 +64,9 @@ Fill in your TypeSafe key and choose a model available to your account.
 Use a dedicated env file because the CLI accepts only decision-model settings.
 [Environment template](../.env.example)
 
-### Check a proposed judgment
+For advice on whether evidence supports human admission, see [Review policy](INTAKE.md#review-policy).
+
+### Screen a candidate for conflicts
 
 ```sh
 proofpress inbox

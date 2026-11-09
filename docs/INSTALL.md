@@ -1,66 +1,98 @@
-# Recommended installation
+# Install Proofpress CLI
 
-From the project you want to connect, run `bash /path/to/judgment-layer/install.sh`.
-It installs/upgrades the isolated Python CLI and enables Codex guidance with readable
-capture settings. Run `proofpress configure` to change them. To choose a host during
-installation, pass onboarding flags such as `--agents claude-code --owner human:me --confirm`.
-The repository is private alpha: authenticate Git first. No public npm or PyPI
-package is claimed. A public unauthenticated curl URL is not an installation path
-for a private repository.
+This repository contains the new local CLI. It is currently private: Git needs
+authenticated access before installation. Supported installer platforms are macOS
+and Linux. The runtime is Python; no npm package is needed.
 
-For a development virtualenv, `python -m pip install -e /path/to/judgment-layer`
-then `proofpress onboard`. Existing guidance can be backed up and refreshed using
-`proofpress onboard --upgrade`. Hook installation is explicit and still requires
-host trust. [Complete local trial](LOCAL-ALPHA.md).
+## Install in your project
 
-# Install Proofpress
-
-The runtime is Python. uv installs it in an isolated environment; the shell
-installer handles those steps for you. No npm package is required.
-
-## Private alpha
-
-Git must already have access to this private repository. Clone it once:
+Run from the project where your agent works:
 
 ```sh
-git clone https://github.com/continuara-lab/judgment-layer.git
+git clone https://github.com/continuara-lab/judgment-layer.git "$HOME/.local/share/proofpress-cli"
+bash "$HOME/.local/share/proofpress-cli/install.sh"
 ```
 
-From the project you want to connect, run `bash /path/to/judgment-layer/install.sh`.
-The script installs uv if needed without editing shell profiles, installs the
-CLI and prepares all 12 skill entry points. It uses `human:<OS username>` as a
-local owner label for new stores, not authentication. Existing owners are kept.
-Admission stays manual. The installer
-prints PATH instructions if the command directory is not already on your PATH.
-
-For selected agents, pass setup arguments explicitly:
+If you already cloned it, skip the clone and run the installer from that location.
+The script installs uv if needed, installs the Python CLI in an isolated tool
+environment and enables Codex guidance in the current project. It does not change
+your shell profile. Follow any printed PATH instruction, then check:
 
 ```sh
-bash /path/to/judgment-layer/install.sh --agents cursor codex --owner human:me
+proofpress doctor
 ```
 
-Or, with uv already installed:
+A `.judgment/` folder holds private records, settings and review history. Installed
+agent guidance contains this store's absolute path. Start a new agent session in
+the project after setup. [First session](AGENT-SETUP.md)
+
+The installer enables manual review and uses `human:<OS username>` as a local
+owner label. This is not authenticated identity. It does not install action hooks
+or import history. [Hook setup](RUNTIME.md)
+
+## Choose another agent
+
+For a fresh project, pass onboarding options to the installer:
 
 ```sh
-uv tool install --upgrade --python 3.11 git+https://github.com/continuara-lab/judgment-layer.git
-proofpress setup --all --owner human:me
+bash "$HOME/.local/share/proofpress-cli/install.sh" --agents claude-code --owner human:me --confirm
 ```
 
-## Curl distribution
-
-`curl` downloads a script; `bash` runs it. That script can install the same Python
-package through uv. This changes onboarding, not the runtime or judgment model.
-The script lives at the repository root as `install.sh` and supports piped input.
-
-After the repository becomes publicly readable, this endpoint can be used:
+To add agent guidance after installation, preview in that project:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/continuara-lab/judgment-layer/main/install.sh | bash
+proofpress onboard --agents cursor codex
 ```
 
-**That anonymous command is not available while the repository is private.**
-No public installer endpoint has been published. A separately hosted script can
-also provide the curl entry point, but installation still needs package access
-until the package itself is public.
+Confirm in your terminal. `proofpress configure` changes what the agent may
+capture. [All agent entry points](AGENTS.md)
 
-For contributor installation and checks, see the [CLI guide](CLI.md).
+## Keep existing Proofpress installations separate
+
+The public Proofpress repository and this CLI both expose a command named
+`proofpress`. They use different distributions, APIs and stores. Do not replace
+an existing installation merely to try this alpha.
+
+If you already use the public implementation, create a separate virtual
+environment in your trial project. Requires uv:
+
+```sh
+uv venv --python 3.11 .venv-proofpress-cli
+uv pip install --python .venv-proofpress-cli/bin/python "git+https://github.com/continuara-lab/judgment-layer.git"
+source .venv-proofpress-cli/bin/activate
+proofpress onboard
+```
+
+Activate that environment when using this CLI. Activation changes which executable
+your shell resolves; it does not migrate data. Do not run it against an older
+Proofpress store. [Repository map](REPOSITORIES.md)
+
+## Update the alpha
+
+For the installer path, update the checkout and rerun the installer from your
+working project:
+
+```sh
+git -C "$HOME/.local/share/proofpress-cli" pull --ff-only
+bash "$HOME/.local/share/proofpress-cli/install.sh"
+```
+
+Existing stores retain their records and owner. Refreshed skill files are backed
+up under `.judgment/skill-backups/`. For a manually installed environment, update
+the package in that environment and use `proofpress onboard --upgrade`.
+
+## Remove the integration
+
+Preview with `proofpress uninstall`; repeat with `--confirm` to remove managed
+hooks and unchanged installed skills. Edited skill files and the judgment store
+remain. Restart your agent after removal. For uv tool installation, remove the
+package with `uv tool uninstall judgment-layer` after removing integration.
+
+## About curl
+
+An anonymous curl command cannot download this private repository. No public
+installer URL or PyPI/npm release is currently available. Once distribution is
+public, a curl script can install the same Python runtime; it does not require a
+runtime rewrite or a different product name.
+
+For source development and checks, see the [CLI guide](CLI.md).

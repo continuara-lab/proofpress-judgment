@@ -32,6 +32,30 @@ def applicability(app):
     return lines
 
 
+def review_advice_text(result):
+    if result is None:
+        return "Not run for this revision."
+    if result.get("status") == "stale":
+        return "Out of date. Run Check evidence again."
+    assessment = result["assessment"]
+    labels = {"supported": "Evidence supported", "revise": "Revision suggested", "unknown": "Needs human judgment"}
+    reasons = {
+        "semantic_provider_not_configured": "Configure the TypeSafe key and model first.",
+        "invalid_project_provider_config": "Check the project Jev env file.",
+        "semantic_provider_failed": "The provider request failed.",
+        "semantic_input_too_large": "The assessment packet exceeds the size limit.",
+        "low_certainty": "The model returned an uncertain result.",
+        "unsupported_evidence": "The supplied evidence does not support the proposal.",
+        "scope_too_broad": "The scope is broader than the evidence supports.",
+        "criteria_unmet": "A project review criterion was not met.",
+        "deterministic_checks_blocked": "Resolve the local checks before sending for assessment.",
+    }
+    suffix = reasons.get(assessment.get("finding", assessment.get("reason")))
+    if assessment.get("model"):
+        suffix = " · ".join(filter(None, [suffix, "TypeSafe / " + assessment["model"]]))
+    return labels[assessment["choice"]] + (f" · {suffix}" if suffix else "") + f" · policy v{result['policy_version']}"
+
+
 def record_lines(item, detailed=False, identity=True):
     r = item["record"]
     lines = [f"{status(item['state'])}  {item['name']} v{item['version']}", r["judgment"]["statement"]]
@@ -66,6 +90,8 @@ def record_lines(item, detailed=False, identity=True):
             capture = r['extensions'].get('proofpress_capture',{})
             if capture.get('trigger'): lines.append('Captured  '+capture['trigger'].replace('_',' '))
             lines.append("Source metadata: available with --json")
+    if item.get("review_advice"):
+        lines.append("Model advice  " + review_advice_text(item["review_advice"]))
     if item.get("flags"):
         lines.append("Paused · conflicting or uncertain judgment; inspect --json")
     if identity:
@@ -121,11 +147,22 @@ def render_text(command, result):
         return "\n".join(lines)
     if command == "inbox":
         return "\n".join(f"{status(x['state'])}  {x['name']} v{x['version']}  {x['id']}" for x in result['judgments']) or "No pending judgments."
+    if command == "review-assist":
+        return "Proofpress · Model advice\n" + review_advice_text(result) + "\nYou decide whether to approve."
+    if command == "review-policy":
+        p = result["review_policy"]
+        timing = "After capture and revision" if p["mode"] == "on_capture" else "On request"
+        inputs = "Candidate and referenced history excerpts" if p["evidence"] == "referenced_history" else "Candidate record only"
+        return "\n".join([color("accent", "Proofpress · Review policy") + f"  v{p['version']}",
+                          "Model checks  " + timing, "Model inputs  " + inputs,
+                          "Criteria  " + (p["criteria"] or "Evidence supports the choice and its stated scope."),
+                          "Approval  Manual"])
     if command == "onboard":
         p = result['capture_policy']
         triggers = p['triggers']
         labels = {'human_judgment':'your judgments', 'human_correction':'your corrections', 'agent_judgment':'agent judgments', 'task_end':'task-end lessons'}
         capture = ', '.join(labels[x] for x in triggers) if triggers else 'off'
+        timing = 'After capture and revision' if result['review_policy']['mode'] == 'on_capture' else 'On request'
         history = 'Import past Codex, Claude Code or Cursor sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
         lines = [color('accent', 'Proofpress · ' + ('Setup' if result['status'] == 'preview' else 'Ready')),
                  color('accent', 'Project') + '  ' + result['project'],
@@ -134,9 +171,10 @@ def render_text(command, result):
                  '         Keep useful choices, reasons and conditions; skip routine messages.',
                  '         Agent guidance; no automatic listener is installed.',
                  color('accent', 'Review') + '   You approve judgments before reuse.',
+                 color('accent', 'Model checks') + '  ' + timing + '. See proofpress review-policy.',
                  color('accent', 'History') + '  ' + history,
                  color('accent', 'Hooks') + '    Setup does not install hooks. Check status with proofpress doctor.',
-                 color('accent', 'Change') + '   Run proofpress configure anytime.']
+                 color('accent', 'Change') + '   Run proofpress capture-policy to inspect or proofpress configure to edit.']
         if result['status'] == 'preview' and not (sys.stdin.isatty() and sys.stdout.isatty()):
             lines.append('To enable: repeat with --owner human:NAME --confirm.')
         if result.get('startup_files'):

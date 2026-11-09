@@ -8,8 +8,8 @@ terminal. Engineering tests only use disposable synthetic owner fixtures.
 Run `bash /path/to/proofpress-judgment/install.sh` in the project. Alternatively install
 with `python -m pip install /path/to/proofpress-judgment`, then run `proofpress onboard --startup --agents codex` with your chosen agent.
 Onboarding previews what capture means, enabled categories, manual review, optional
-project history and hook status. Enter `y` to enable it. Run `proofpress configure`
-to choose capture categories and history permissions later.
+project history and hook status. Choose **Use shown policy** or **Customize capture**.
+Use `proofpress configure` to change capture settings later. [Model review policy](INTAKE.md#review-policy)
 
 To refresh previously installed skill files, use `proofpress onboard --upgrade`.
 Existing differing files are backed up under `.judgment/skill-backups/` before

@@ -13,7 +13,8 @@ curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/
 
 The script installs uv if needed, installs the Python CLI in an isolated tool
 environment and enables Codex startup guidance in the current project. It does not change
-your shell profile. Follow any printed PATH instruction, then check:
+your shell profile. An interactive installation previews the policy and lets you
+keep it or customize capture. Follow any printed PATH instruction, then check:
 
 ```sh
 proofpress doctor

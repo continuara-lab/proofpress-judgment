@@ -80,7 +80,10 @@ the defaults tell the agent when to propose your judgments, corrections, its own
 consequential choices and useful lessons at the end of a task. Capture is agent
 guidance. History import is a separate opt-in action.
 
-Run `proofpress configure` to change what the agent may propose. For scripts,
+On the setup screen, choose **Use shown policy** or **Customize capture**.
+Customization explains each capture category and previews your choices before
+enabling them. Run `proofpress capture-policy` to inspect settings later and
+`proofpress configure` to change what the agent may propose. For scripts,
 the human can set policy with explicit confirmation.
 
 ```sh
@@ -120,3 +123,32 @@ source evidence or unavailable/uncertain provider results should be unknown.
 The report is bound to the inspected content digest; it never invokes admission.
 Human review is still mandatory. Automatic approval needs a separately designed,
 owner-authorized risk policy and evaluation; this release does not implement it.
+
+## Review policy
+
+Use `proofpress review-policy` to see the current model timing, input scope and
+criteria. Local checks and manual admission apply with every policy.
+
+1. Set up the [TypeSafe configuration](RUNTIME.md#set-up-jev) in `.judgment/jev.env`.
+2. To check one candidate, choose **Check evidence** in `proofpress review ID`
+   or run `proofpress review-assist ID`.
+3. To assess candidates saved through capture or revision, explicitly enable
+   project-wide model advice. Put your criteria in a short text file before applying the policy.
+
+```sh
+proofpress review-policy --mode on-capture --criteria review-criteria.txt --confirm
+```
+
+This sends candidate records and the review criteria to the configured provider
+after capture or revision. The default evidence mode sends only the candidate
+record, including the evidence summaries you wrote into it. Opt in with
+`--evidence referenced-history --confirm` to also send imported excerpts that
+the candidate cites. Use `--mode manual --confirm` to restore on-request model
+review.
+
+Write criteria for the work, such as requiring benchmark evidence for latency
+claims and accepting a maintainer's explicit instruction for repository
+conventions. The result applies to the exact candidate and policy versions.
+The review screen shows local checks, model advice and your approval separately.
+Use `assess ID` when you specifically want a conflict screen against other
+approved judgments.

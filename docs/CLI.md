@@ -5,6 +5,9 @@ capture means for your project: your judgments, corrections, consequential agent
 choices and task-end lessons. Each category creates proposals for manual review.
 No automatic listener is installed.
 
+- `proofpress capture-policy` shows the active capture settings.
+- `proofpress review-policy` shows when model review runs, what it receives and which criteria it uses.
+- `proofpress review-assist ID` requests model advice on the latest pending revision. [Review policy](INTAKE.md#review-policy)
 - `proofpress review` opens a numbered inbox; choose a candidate without copying an ID.
 - `proofpress review ID` reviews one judgment, with editing and proposed enforcement.
 - `proofpress edit ID` opens a concise TOML form in `$VISUAL` / `$EDITOR` / `vi`.

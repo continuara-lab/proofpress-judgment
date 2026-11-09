@@ -1,51 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 502" width="840" height="502" role="img" aria-labelledby="title description">
-  <title id="title">How Proofpress carries judgment across agent sessions</title>
-  <desc id="description">An agent session supplies guidance and experience for a draft Agent Judgment Format record. A human edits or approves the draft. Later sessions get approved judgments when their task facts match. An optional host hook checks covered actions before execution using local checks or optional Jev assessment.</desc>
-  <defs>
-    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
-      <path d="M1 1l6 3-6 3" fill="none" stroke="#397580" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-    </marker>
-  </defs>
-  <rect x="0.5" y="0.5" width="839" height="501" rx="21" fill="#F8F7F3" stroke="#DADDD7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 496" width="840" height="496" role="img" aria-labelledby="title description">
+  <title id="title">The Proofpress judgment lifecycle</title>
+  <desc id="description">An agent session produces a candidate for human admission. Approved revisions are available to two independent paths: retrieval for later tasks and optional hook enforcement for covered actions.</desc>
+  <rect x="0.5" y="0.5" width="839" height="495" rx="22" fill="#F8F7F3" stroke="#DADDD7"/>
   <g font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif">
-    <text x="32" y="35" fill="#336873" font-size="14" font-weight="700" letter-spacing="2">PROOFPRESS</text>
-    <text x="32" y="68" fill="#1C292C" font-size="27" font-weight="700">How judgment carries across sessions</text>
-    <g fill="#FFFFFF" stroke="#CFD8D5">
-      <rect x="32" y="89" width="466" height="76" rx="12"/>
-      <rect x="32" y="191" width="466" height="76" rx="12"/>
-      <rect x="32" y="293" width="466" height="76" rx="12"/>
+    <text x="34" y="37" fill="#336873" font-size="13" font-weight="700" letter-spacing="2">PROOFPRESS</text>
+    <text x="34" y="70" fill="#1C292C" font-size="27" font-weight="700">From agent session to reusable judgment</text>
+    <rect x="34" y="93" width="772" height="47" rx="9" fill="#285A63"/>
+    <text x="54" y="123" fill="#FFFFFF" font-size="17" font-weight="650">Agent session</text>
+    <text x="219" y="123" fill="#FFFFFF" font-size="16">→  Capture a new judgment or revise an existing one</text>
+    <g fill="none" stroke="#6C9295" stroke-width="2">
+      <path d="M57 140v19m-4-5 4 5 4-5"/>
+      <path d="M420 261v33M218 314v-20h404v20m-408-5 4 5 4-5m396 0 4 5 4-5"/>
     </g>
-    <rect x="32" y="395" width="466" height="76" rx="12" fill="#E7F2EB" stroke="#A2BEAD"/>
-    <rect x="550" y="306" width="258" height="165" rx="12" fill="#E7F2F4" stroke="#A5C5CC"/>
-    <g fill="none" stroke="#397580" stroke-width="1.6" marker-end="url(#arrow)">
-      <path d="M57 167v20"/>
-      <path d="M57 269v20"/>
-      <path d="M57 371v20"/>
-      <path d="M501 433h45"/>
+    <rect x="34" y="160" width="772" height="101" rx="11" fill="#FFFFFF" stroke="#CFD8D5"/>
+    <rect x="34" y="315" width="370" height="146" rx="11" fill="#E7F2EB" stroke="#A2BEAD"/>
+    <rect x="436" y="315" width="370" height="146" rx="11" fill="#E7F2F4" stroke="#A5C5CC"/>
+    <g fill="#285F6A" font-size="13" font-weight="700" letter-spacing="0.8">
+      <text x="55" y="184">WHEN A CANDIDATE IS SAVED</text>
+      <text x="55" y="340">BEFORE RELATED WORK</text>
+      <text x="457" y="340">BEFORE A COVERED ACTION</text>
     </g>
-    <g font-size="15" fill="#336873" font-weight="700">
-      <text x="49" y="121">01</text>
-      <text x="49" y="223">02</text>
-      <text x="49" y="325">03</text>
-      <text x="49" y="427">04</text>
+    <g fill="#1C292C" font-size="20" font-weight="700">
+      <text x="55" y="211">Admission review</text>
+      <text x="55" y="367">Retrieval</text>
+      <text x="457" y="367">Tool enforcement</text>
     </g>
-    <g font-size="20" font-weight="700" fill="#1C292C">
-      <text x="86" y="121">Agent session</text>
-      <text x="86" y="223">Draft judgment</text>
-      <text x="86" y="325">Human review</text>
-      <text x="86" y="427">Later agent session</text>
-      <text x="570" y="360">Enforcement hook</text>
+    <g fill="#3A4C4F" font-size="16">
+      <text x="55" y="239">Local checks and optional Jev advice. A human approves the exact revision.</text>
+      <text x="55" y="393">Match scope and task facts against</text>
+      <text x="55" y="414">current approved versions.</text>
+      <text x="55" y="440" font-weight="650">Return eligible guidance.</text>
+      <text x="457" y="393">An optional hook checks the bound</text>
+      <text x="457" y="414">revision using local rules or Jev.</text>
+      <text x="457" y="440" font-weight="650">Pass or pause the tool action.</text>
     </g>
-    <g font-size="16" fill="#3A4C4F">
-      <text x="86" y="144">Capture guidance and choices from live or past work.</text>
-      <text x="86" y="246">AJF records the choice, why, when and source.</text>
-      <text x="86" y="348">Edit, approve or reject the draft.</text>
-      <text x="86" y="450">Reuse approved judgments that match the task.</text>
-      <text x="570" y="387">Check covered actions against</text>
-      <text x="570" y="409">the exact approved version.</text>
-      <text x="570" y="432" font-size="14">Local checks or optional Jev</text>
-      <text x="570" y="454" fill="#285F6A" font-weight="700">Pass or pause the action.</text>
-    </g>
-    <text x="570" y="331" font-size="12" fill="#336873" font-weight="700" letter-spacing="1.3">OPTIONAL HOST INTEGRATION</text>
+    <rect x="332" y="282" width="176" height="24" rx="12" fill="#F8F7F3" stroke="#CFD8D5"/>
+    <text x="420" y="299" text-anchor="middle" fill="#285F6A" font-size="13" font-weight="700">Approved versions</text>
   </g>
 </svg>

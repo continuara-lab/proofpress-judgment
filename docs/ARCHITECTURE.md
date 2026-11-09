@@ -29,6 +29,15 @@ A pending revision leaves the previous admission active. Withdrawing a
 revision does not revive an older one. Dependencies stay pinned to their
 approved versions.
 
+## How retrieval works
+
+Agents call `proofpress context` with an exact scope and known task facts.
+The current CLI reads SQLite revisions and filters in Python. It keeps admitted,
+applicable versions whose conditions, validity window and pinned dependencies
+match. A recorded conflict or unresolved scope hold can suppress those matches.
+Use `proofpress match` to see inclusion and exclusion reasons. The caller
+supplies the scope and facts. This path makes no model call.
+
 ## Advice and enforcement
 
 A context receipt records which versions and facts the CLI supplied. Use
@@ -46,11 +55,12 @@ define the limits of local enforcement.
 ## Optional decision model
 
 Proofpress checks structured assertions, scope, conditions and versions locally.
-Jev, called through TypeSafe, adds two explicitly enabled checks:
+Jev, called through TypeSafe, supports three opt-in checks:
 
 | Entry point | What Jev receives | What Proofpress does with the result |
 | --- | --- | --- |
-| Candidate assessment | The proposed judgment and overlapping approved judgments | Flags a potential conflict or uncertainty for review |
+| Admission advice | The candidate, project review criteria, and optionally referenced history excerpts | Recommends approval, revision, or human judgment. Advice is scoped to the candidate and review policy versions. |
+| Conflict assessment | The proposed judgment and overlapping approved judgments | Flags a potential conflict or uncertainty for review |
 | Bound output check | The approved judgment and complete proposed new-file content | Pauses a covered write on a violation, uncertainty or provider failure |
 
 Human review controls admission and binding. A model pass on a write leaves the

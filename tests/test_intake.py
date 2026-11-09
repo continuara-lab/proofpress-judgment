@@ -26,6 +26,18 @@ class IntakeTests(unittest.TestCase):
     def tearDown(self):self.s.close();self.tmp.cleanup()
     def op(self,fn):
         with self.s.transaction():return fn()
+
+    def test_natural_language_guidance_is_previewed_before_human_confirmation(self):
+        from judgment_layer.cli import parser, run
+        proposed = copy.deepcopy(policy(self.s))
+        proposed["guidance"] = ["Capture design tradeoffs; skip routine formatting."]
+        source = self.root / "policy.json"
+        source.write_text(json.dumps(proposed))
+        args = ["--workspace", str(self.s.root), "capture-policy", "--from", str(source)]
+        self.assertTrue(run(parser().parse_args(args))["preview"])
+        self.assertNotIn("guidance", self.op(lambda: policy(self.s)))
+        run(parser().parse_args(args + ["--confirm"]))
+        self.assertEqual(self.op(lambda: policy(self.s))["guidance"], proposed["guidance"])
     def test_onboarding_preview_and_manual_policy(self):
         project=self.root/'project';project.mkdir()
         result=onboard(project,'.judgment',['codex'],None,False)

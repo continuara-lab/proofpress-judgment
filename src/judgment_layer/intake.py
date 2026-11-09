@@ -18,7 +18,13 @@ def policy(store):
 
 def set_policy(store, value, confirmed):
     if not confirmed:raise JudgmentError('Capture policy changes require human --confirm')
-    if not isinstance(value,dict) or set(value)!=set(DEFAULT_POLICY) or value['version']!=1:
+    validate_capture_policy(value)
+    store.append('capture_policy_set',store.config['owner'],data={'policy':value})
+    return {'ok':True,'capture_policy':value}
+
+
+def validate_capture_policy(value):
+    if not isinstance(value,dict) or not set(DEFAULT_POLICY)<=set(value) or set(value)-set(DEFAULT_POLICY)-{'guidance'} or value['version']!=1:
         raise JudgmentError('Unsupported capture policy shape')
     if not isinstance(value['triggers'],list) or any(x not in DEFAULT_POLICY['triggers'] for x in value['triggers']):
         raise JudgmentError('Unsupported capture trigger')
@@ -26,8 +32,10 @@ def set_policy(store, value, confirmed):
         raise JudgmentError('Only selected history and manual admission are supported')
     if type(value['max_excerpt_chars']) is not int or not 1000<=value['max_excerpt_chars']<=24000:
         raise JudgmentError('Excerpt limit must be between 1000 and 24000 characters')
-    store.append('capture_policy_set',store.config['owner'],data={'policy':value})
-    return {'ok':True,'capture_policy':value}
+    guidance=value.get('guidance',[])
+    if not isinstance(guidance,list) or len(guidance)>12 or any(not isinstance(x,str) or not x.strip() or len(x)>500 for x in guidance):
+        raise JudgmentError('Capture guidance must be up to 12 nonempty notes of 500 characters or fewer')
+    return value
 
 
 def onboard(project, workspace, agents, owner, confirmed, selection=None, upgrade=False, startup=False):

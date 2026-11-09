@@ -80,9 +80,16 @@ the defaults tell the agent when to propose your judgments, corrections, its own
 consequential choices and useful lessons at the end of a task. Capture is agent
 guidance. History import is a separate opt-in action.
 
-On the setup screen, choose **Use shown policy** or **Customize capture**.
-Customization explains each capture category and previews your choices before
-enabling them. Run `proofpress capture-policy` to inspect settings later and
+On the setup screen, keep the defaults, choose capture settings, or choose to
+customize with your agent. Setup also lets you select on-request or automatic
+Jev advice. If you choose to customize with your agent, start a new session and
+describe what you want to retain in your own words.
+
+The agent can prepare a complete capture policy and put your nuanced inclusion
+and exclusion preferences in its optional `guidance` list. Preview it with
+`proofpress capture-policy --from FILE`, then a human can apply it with
+`proofpress capture-policy --from FILE --confirm`. Guidance is an instruction
+for the agent and is not a deterministic text filter. Run `proofpress capture-policy` to inspect settings later and
 `proofpress configure` to change what the agent may propose. For scripts,
 the human can set policy with explicit confirmation.
 

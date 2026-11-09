@@ -43,6 +43,15 @@ confirm changes to capture policy. Current triggers guide this skill; there is n
 installed background capture listener or scheduler. Capture meaningful human judgments and
 corrections promptly, and consider consequential agent judgments at task boundaries.
 
+When the user asks to customize their policy in natural language, read the current
+capture policy with `capture-policy --json` and discuss what should be retained.
+Prepare a complete proposed policy JSON in the private project workspace. Preserve
+existing fields and place nuanced inclusion or exclusion instructions in the
+optional `guidance` array. These notes guide agents; they are not deterministic
+filters. Preview with `capture-policy --from FILE`. Explain the proposed settings
+and let the human run `capture-policy --from FILE --confirm`. Do not confirm it
+for them. Explain review policy choices and provider data transfer separately.
+
 Use `history project --project PATH --agent HOST` to preview local history.
 Choose `codex`, `claude-code` or `cursor`. The human confirms import. Per-session scan, preview
 and import remain advanced options. Import stores redacted excerpts locally;

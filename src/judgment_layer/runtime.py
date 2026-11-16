@@ -182,7 +182,8 @@ def gate(store, event):
 
 
 def hook(workspace, event, managed=False):
-    if (managed and isinstance(event,dict) and event.get('tool_name') in {'Read','Glob','Grep'}
+    if (managed and isinstance(event,dict) and isinstance(event.get('tool_name'),str)
+            and event['tool_name'] in {'Read','Glob','Grep'}
             and isinstance(event.get('tool_input'),dict)):
         return {}  # No store, ledger scan or provider call for known read-only events.
     from .store import Store

@@ -5,6 +5,15 @@ Enforcement checks a covered tool action before it runs. Start with
 protected paths. One approval admits the judgment and binds that check to the
 exact revision. [Review and recovery walkthrough](LOCAL-ALPHA.md)
 
+## Schedule checks by task boundary
+
+For new workflow integrations, use [task-boundary semantic checks](TASK-BOUNDARIES.md):
+one aggregate plan assessment before covered work, deterministic checks on relevant
+actions, and one aggregate artifact assessment before delivery. Explicit release
+checks bind the reviewed artifact bundle to the current task. This prototype
+requires a workflow bridge; managed host hooks do not automatically supply task
+ids or intercept completion. Existing action bindings are not migrated.
+
 ## Install a host hook
 
 Copy the [install command for your agent](../README.md#enforce-judgments).

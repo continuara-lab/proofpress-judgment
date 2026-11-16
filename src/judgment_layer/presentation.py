@@ -247,6 +247,12 @@ def render_text(command, result):
         return "Review assistance · "+result['assessment']['choice']+" · "+str(len(result['flags']))+" flags · manual admission required"
     if command == "assess":
         return "No conflict flagged · candidate still needs review" if result["ok"] else "Paused · conflicting or uncertain judgment; inspect --json"
+    if command in {"task-start", "task-finish", "task-check"}:
+        outcome = "Passed" if result["ok"] else "Paused"
+        details = result.get("reasons", [])
+        if "assessment" in result:
+            details = [result["assessment"]["choice"], *details]
+        return outcome + " · " + result["task_id"] + (" · " + "; ".join(details) if details else "")
     if command == "bind":
         return "Runtime binding saved · install the host hook separately"
     if command == "check":

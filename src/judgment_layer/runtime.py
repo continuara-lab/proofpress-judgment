@@ -74,7 +74,7 @@ def bind(store, policy, confirmed):
     r=store.record(policy['judgment_id'],policy['version'])
     if store.state(r)!='admitted' or digest(r)!=policy['digest'] or policy['scope']!=r['applicability']['scope']:
         raise JudgmentError('Binding requires an admitted exact revision in this scope')
-    if policy['verifier'] not in {'deny_generated_write','require_conditions','decision_model_output','semantic_output'}:
+    if policy['verifier'] not in {'deny_generated_write','require_conditions','decision_model_output','semantic_output','task_boundary'}:
         raise JudgmentError('Unsupported verifier')
     root=Path(policy['project_root'])
     if not root.is_absolute() or not root.is_dir() or str(root.resolve())!=str(root):
@@ -156,6 +156,11 @@ def gate(store, event):
             return {'ok':False,'reason':f"{r['name']} v{r['version']}: binding withdrawn or superseded. Review the latest revision and enforcement, or explicitly unbind."}
         if holds(store,policy['scope']):
             return {'ok':False,'reason':f"{r['name']} v{r['version']}: judgment conflict or uncertainty. Review pending judgments before continuing."}
+        if policy['verifier']=='task_boundary':
+            from .tasks import action_check
+            result=action_check(store,event,policy)
+            if not result['ok']:return result
+            continue
         # Runtime-derived facts only. Unknown condition fields cannot be invented by a model.
         facts={'generated_file':True} if policy['verifier']=='deny_generated_write' else {}
         reason=store.eligible(r,policy['scope'],facts)
@@ -177,6 +182,9 @@ def gate(store, event):
 
 
 def hook(workspace, event, managed=False):
+    if (managed and isinstance(event,dict) and event.get('tool_name') in {'Read','Glob','Grep'}
+            and isinstance(event.get('tool_input'),dict)):
+        return {}  # No store, ledger scan or provider call for known read-only events.
     from .store import Store
     store=None
     try:

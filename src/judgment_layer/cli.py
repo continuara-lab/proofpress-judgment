@@ -114,6 +114,17 @@ def parser():
     s = sub.add_parser("bind", help="Human-only: bind an admitted judgment to a runtime verifier")
     s.add_argument("--from", dest="source", required=True)
     s.add_argument("--confirm", action="store_true")
+    for action in ("start", "finish", "check"):
+        s = sub.add_parser("task-" + action, help="Explicit workflow task " + action + " checkpoint")
+        s.add_argument("--task", required=True, help="Workflow-owned task id, not an inferred host session")
+        s.add_argument("--facts", required=True)
+        if action == "start":
+            s.add_argument("--scope", required=True)
+            s.add_argument("--plan", required=True, help="Text file containing the task plan")
+        else:
+            s.add_argument("--artifacts", required=True, help="JSON object of artifact names to complete text")
+        if action == "finish":
+            s.add_argument("--evidence", help="Text file with supporting review context or test evidence")
     s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
     sub.add_parser('managed-hook', help=argparse.SUPPRESS)
     sub.add_parser('cursor-hook', help=argparse.SUPPRESS)
@@ -278,6 +289,16 @@ def run(args):
                 item["review_advice"] = advice
             return item
         with store.transaction():
+            if args.command in {"task-start", "task-finish", "task-check"}:
+                from .tasks import start_task, finish_task, check_release
+                facts = load(args.facts)
+                if args.command == "task-start":
+                    return start_task(store, args.task, args.scope, facts, Path(args.plan).read_text())
+                outputs = load(args.artifacts)
+                if args.command == "task-finish":
+                    evidence = Path(args.evidence).read_text() if args.evidence else ""
+                    return finish_task(store, args.task, facts, outputs, evidence)
+                return check_release(store, args.task, facts, outputs)
             if args.command == 'doctor':
                 from .hosts import doctor
                 return doctor(store,args.project)
@@ -490,7 +511,7 @@ def main(argv=None):
             print(render_text(args.command, result))
         else:
             print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
-        return 3 if args.command in {"check", "assess"} and not result["ok"] else 0
+        return 3 if args.command in {"check", "assess", "task-start", "task-finish", "task-check"} and not result["ok"] else 0
     except (JudgmentError, OSError, ValueError, sqlite3.Error, KeyError, TypeError, EOFError, KeyboardInterrupt) as exc:
         if args.command=='cursor-hook':
             from .cursor import deny

@@ -11,6 +11,7 @@ from .store import Store, initialize
 from .importers import from_trace
 from .setup import AGENTS, setup
 from .presentation import agent_projection, render_text
+from .history_events import coverage
 
 
 def load(path):
@@ -145,13 +146,15 @@ def parser():
     s.add_argument("--evidence", choices=["candidate", "referenced-history"])
     s.add_argument("--confirm", action="store_true", help="Save policy and consent to its model inputs")
     s = sub.add_parser("history", help="Import local Codex, Claude Code or Cursor sessions")
-    s.add_argument("action", choices=["scan", "preview", "import", "project"])
+    s.add_argument("action", choices=["scan", "preview", "import", "project", "timeline"])
     selector=s.add_mutually_exclusive_group()
     selector.add_argument("--file")
     selector.add_argument("--session", help="Stable source key from history scan")
     s.add_argument("--agent", choices=["codex", "claude-code", "cursor"], default="codex")
     s.add_argument("--root", help="Override the selected agent’s local history directory")
     s.add_argument("--days", type=int, default=7)
+    s.add_argument("--include-tools", action="store_true", help="Opt in to logged tool arguments/results; may contain private file or command content")
+    s.add_argument("--offset", type=int, default=0, help="Timeline only: continue at a returned native byte boundary")
     s.add_argument("--previews", action="store_true", help="Read short first-user-message previews locally")
     s.add_argument("--confirm", action="store_true", help="Import the selected project's history locally")
     s.add_argument("--project", required=True)
@@ -168,6 +171,10 @@ def parser():
 
 
 def run(args):
+    if args.command == "history" and args.offset and args.action != "timeline":
+        raise JudgmentError("--offset is for timeline only; imports own their checkpoints")
+    if args.command == "history" and args.action == "scan" and args.include_tools:
+        raise JudgmentError("Use --include-tools with preview, timeline, import or project; scan reads metadata only")
     if args.command=='history' and args.action=='project' and (args.file or args.session):
         raise JudgmentError('Project import selects the whole project; omit --file and --session')
     if args.command in {'configure', 'edit'} or (args.command == 'review' and not any((args.admit,args.reject,args.request_changes))) or (args.command=='withdraw' and not args.confirm):
@@ -199,7 +206,8 @@ def run(args):
     if args.command == "history" and args.action == "project" and not args.confirm:
         from .history import scan
         found = scan(args.root, args.project, args.days, agent=args.agent)
-        return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'skipped': found['skipped'], 'imported': False}
+        return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'skipped': found['skipped'], 'imported': False, 'include_tools': args.include_tools,
+                'coverage': coverage(args.include_tools)}
     if args.command == "history" and args.action not in {"scan", "project"}:
         if args.session:
             from .history import resolve_selection
@@ -208,7 +216,17 @@ def run(args):
             raise JudgmentError("Select --session from history scan (or use --file)")
     if args.command == "history" and args.action == "preview":
         from .history import preview
-        return preview(args.file,args.project,agent=args.agent)
+        return preview(args.file,args.project,agent=args.agent,include_tools=args.include_tools)
+    if args.command == "history" and args.action == "timeline":
+        if not args.include_tools:
+            raise JudgmentError("Timeline tool content requires explicit --include-tools")
+        from .history import read_source
+        from .history_events import tool_links
+        batch = read_source(args.file, args.project, offset=args.offset, agent=args.agent, include_tools=True)
+        return {"events": batch["events"], "tool_links": tool_links(batch["events"]),
+                "messages": len(batch["messages"]), "pending_bytes": batch["pending_bytes"], "next_offset": batch['offset'],
+                "omitted_blocks": batch["omitted_blocks"], "coverage": batch["coverage"],
+                "boundary": "Local logged excerpt only; no model call, import or complete trajectory audit."}
     if args.command == "setup":
         return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
                      args.owner, args.dry_run)
@@ -248,15 +266,16 @@ def run(args):
             return {'ok':True,'candidates':candidates,'remaining_batches':remaining}
         if args.command == "consolidate" and args.model_assessment:
             from .history import consolidate, extract
+            from .history_events import entries
             with store.transaction():
                 from .intake import policy
                 if policy(store)['history']=='none':raise JudgmentError('History processing is disabled by capture policy')
                 current_policy=policy(store)
                 if not current_policy['triggers']:raise JudgmentError('Capture is off; enable capture triggers before extraction')
                 done={e['data']['batch_id'] for e in store.events() if e['kind']=='history_consolidated'}
-                batches=[e for e in store.events() if e['kind']=='history_imported' and e['event_id'] not in done and e['data']['batch']['messages']]
+                batches=[e for e in store.events() if e['kind']=='history_imported' and e['event_id'] not in done and entries(e['data']['batch'])]
                 batch=batches[0] if batches else None
-            candidates=extract(batch['data']['batch']['messages'],current_policy) if batch else []
+            candidates=extract(entries(batch['data']['batch']),current_policy) if batch else []
             with store.transaction():
                 return consolidate(store,args.scope,True,(batch['event_id'],candidates) if batch else None)
         if args.command == "review-assist":
@@ -344,18 +363,20 @@ def run(args):
                 from .history import ingest, scan
                 if args.action == 'project':
                     found = scan(args.root, args.project, args.days, agent=args.agent)
-                    messages = 0; pending = 0; errors = []
+                    messages = 0; tools = 0; pending = 0; errors = []
                     for item in found['sessions']:
                         try:
                             while True:
-                                batch = ingest(store, item['path'], args.project, agent=args.agent)
+                                batch = ingest(store, item['path'], args.project, agent=args.agent, include_tools=args.include_tools)
                                 messages += batch['messages']
+                                tools += batch.get('tool_events', 0)
                                 if batch.get('duplicate') or not batch['pending_bytes']:
                                     pending += batch['pending_bytes']; break
                         except JudgmentError as exc:
                             errors.append({'source_key': item['source_key'], 'reason': str(exc)})
-                    return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'messages': messages, 'pending_bytes': pending, 'errors': errors, 'imported': True}
-                return ingest(store,args.file,args.project,agent=args.agent)
+                    return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'messages': messages, 'pending_bytes': pending, 'errors': errors, 'imported': True, 'tool_events': tools, 'include_tools': args.include_tools,
+                            'coverage': coverage(args.include_tools)}
+                return ingest(store,args.file,args.project,agent=args.agent,include_tools=args.include_tools)
             if args.command == "consolidate":
                 from .history import consolidate
                 return consolidate(store,args.scope,args.model_assessment)

@@ -201,6 +201,18 @@ def render_text(command, result):
         if result.get('preview'):
             lines.append('Preview only. A human can apply with proofpress capture-policy --from FILE --confirm.')
         return '\n'.join(lines)
+    if command == "history" and "events" in result:
+        lines = ["Logged timeline excerpt · " + str(len(result["events"])) + " events"]
+        for item in result["events"][:40]:
+            label = item.get("role") if item["kind"] == "message" else item["kind"] + " · " + (item.get("tool_name") or "name unavailable")
+            line = label + (" · call " + item["call_id"] if item.get("call_id") else "") + " · " + item["text"][:160]
+            lines.append(''.join(c if c.isprintable() else ' ' for c in line))
+        lines.append("Use --json for full selected event bodies and source references.")
+        lines.append(result["coverage"]["boundary"])
+        lines.append("Pending  " + str(result["pending_bytes"]) + " bytes · omitted blocks " + str(result["omitted_blocks"]))
+        if result['pending_bytes']:
+            lines.append('Continue  --offset ' + str(result['next_offset']))
+        return "\n".join(lines)
     if command == "history" and result.get('project_history'):
         from .history import AGENT_LABELS
         agent = AGENT_LABELS[result["agent"]]
@@ -208,7 +220,7 @@ def render_text(command, result):
                  color('accent','Project')+'  ' + result['project'],
                  color('accent','History')+'  ' + str(result['sessions']) + ' ' + agent + ' sessions · modified in last ' + str(result['days']) + ' days']
         if result['imported']:
-            lines.append('Imported  ' + str(result['messages']) + ' messages locally · ' + str(result['pending_bytes']) + ' bytes pending')
+            lines.append('Imported  ' + str(result['messages']) + ' messages locally · ' + str(result['pending_bytes']) + ' bytes pending · ' + str(result.get('tool_events', 0)) + ' tool events')
             if result['errors']:
                 lines.append(color('move','Needs attention')+'  ' + str(len(result['errors'])) + ' sessions; other imports are preserved')
                 lines += ['  '+x['source_key']+' · '+x['reason'] for x in result['errors']]
@@ -218,6 +230,8 @@ def render_text(command, result):
             lines.append('Note  Redaction may not catch every sensitive detail.')
             if result['agent'] == 'cursor':
                 lines.append('Source  ' + result['directory'])
+        lines.append('Coverage  ' + ('Text and logged tool arguments/results (opt-in)' if result.get('include_tools') else 'User/assistant text only; tools excluded'))
+        lines.append('Not a complete trajectory audit; extraction creates candidates only.')
         return '\n'.join(lines)
     if command == "history" and "sessions" in result:
         from datetime import datetime
@@ -236,7 +250,7 @@ def render_text(command, result):
         lines.append('Preview: proofpress history preview --project PROJECT --agent '+result['agent']+' --session KEY')
         return "\n".join(lines)
     if command == "history":
-        return "History · "+str(result['messages'])+" messages · "+str(result['pending_bytes'])+" bytes pending"+ (" · local import" if result.get('ok') else " · preview only")
+        return "History · "+str(result['messages'])+" messages · "+str(result.get('tool_events',0))+" tool events · "+str(result['pending_bytes'])+" bytes pending"+ (" · local import" if result.get('ok') else " · preview only") + "\n" + result.get("coverage", {}).get("boundary", "Selected excerpts only; not a complete trajectory audit.")
     if command == "consolidate":
         return ("Pending  "+str(result['pending_batches'])+" batches · add --model-assessment to send excerpts to Codex and extract candidates") if 'pending_batches' in result else ("Captured  "+str(len(result['candidates']))+" candidates · manual review required\nRemaining  "+str(result['remaining_batches'])+" batches\nNext  proofpress inbox, then proofpress review ID")
     if command == "observe":

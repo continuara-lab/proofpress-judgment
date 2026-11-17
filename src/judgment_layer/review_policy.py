@@ -2,6 +2,7 @@
 
 from .model import JudgmentError, digest
 from .runtime import active_flags
+from .history_events import source_entries
 
 DEFAULT_CRITERIA = "The supplied evidence supports the choice and its stated scope. Prefer reusable judgments with clear limits."
 
@@ -82,7 +83,12 @@ def review_assist(store, jid, expected_digest=None, automatic=False):
             refs = set(record["provenance"]["source_refs"])
             packet["source_excerpts"] = [
                 message for event in store.events() if event["kind"] == "history_imported"
-                for message in event["data"]["batch"]["messages"] if message["source_ref"] in refs
+                for message in source_entries(event["data"]["batch"]) if message["source_ref"] in refs
+            ]
+            packet["source_coverage"] = [
+                event["data"]["batch"].get("coverage", {"mode": "text_only", "complete_trajectory": False})
+                for event in store.events() if event["kind"] == "history_imported"
+                and any(item["source_ref"] in refs for item in source_entries(event["data"]["batch"]))
             ]
 
     if issues:

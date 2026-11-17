@@ -41,6 +41,19 @@ def handle(workspace, workflow_id, event):
                 raise JudgmentError('Lifecycle event belongs to another project')
             native = {**event, 'host': 'claude-code'}
             if kind == 'UserPromptSubmit':
+                prompt = event.get('prompt')
+                if isinstance(prompt, str) and prompt.startswith('proofpress resume task '):
+                    task_id = prompt[len('proofpress resume task '):].strip()
+                    if attached(store, native) != task_id:
+                        return failure(event, 'Resume must name this session\'s attached task')
+                    from .workflows import status
+                    current = status(store, task_id)
+                    return {'hookSpecificOutput': {'hookEventName': kind,
+                            'additionalContext': json.dumps({
+                                'proofpress_resume': current, 'workspace': str(store.root.resolve()),
+                                'instruction': 'Resume this exact task; retain its judgments and gates. '
+                                'Inspect task-status and repair/recheck as needed. '
+                                'A human exception does not approve changed artifacts or responses.'})}}
                 task_id = 'task_' + uuid.uuid4().hex
                 result = prepare(store, task_id, workflow_id, event.get('prompt'))
                 attach(store, task_id, 'claude-code', event['session_id'])

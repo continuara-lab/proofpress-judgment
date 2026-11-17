@@ -55,7 +55,10 @@ provider inputs: request text, criteria, configured facts, judgments, plans and
 covered outputs. Use the explicit BYOK env file as with existing model assessment.
 No provider configured, provider failure, oversized input or low certainty means
 unknown. Two semantic reviews are the normal plan/output budget; scope resolution
-adds one assessment per optional criterion. Repair/restart can add calls.
+adds one assessment per optional criterion. Repair/restart can add calls. Claude
+Stop reviews files and final response together; the skill avoids a duplicate
+file-only review on that normal path. Requesting both a separate file export and
+a native response review adds a separate review boundary.
 
 `paths` define the actual file coverage. `artifacts` are exact required files, not
 a model-picked subset or glob. At delivery the engine enumerates *all* current
@@ -78,7 +81,9 @@ Restart Claude and inspect/trust hooks. The managed entries preserve other hooks
 - `UserPromptSubmit` prepares context from the submitted request, creates a task
   id, explicitly maps the session to it and injects the context packet before
   Claude plans. Each new user prompt starts a new task context; corrections do
-  not inherit an old passing plan.
+  not inherit an old passing plan. To resume a paused task after inspection, submit
+  the exact text `proofpress resume task TASK_ID`; only the task already attached
+  to that session can resume, and all artifact/freshness checks stay active.
 - `PreToolUse` gates source writes on the current plan and retains hard bindings.
   Known Read/Glob/Grep tools stay available. The exact task plan draft can be
   written before plan approval. A narrowly parsed `proofpress` control channel

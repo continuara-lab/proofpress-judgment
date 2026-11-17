@@ -309,6 +309,17 @@ class EnforcementWorkflowTests(unittest.TestCase):
         self.assertEqual(handle(self.ws, 'coding', stop)['decision'], 'block')
         self.assertFalse(handle(self.ws, 'coding', {**stop, 'stop_hook_active': True})['continue'])
 
+    def test_explicit_resume_keeps_session_task_and_refuses_another_task(self):
+        packet = self.native_plan()
+        before = len([e for e in self.store.events() if e['kind'] == 'task_prepared'])
+        resumed = handle(self.ws, 'coding', self.native('UserPromptSubmit',
+                         prompt='proofpress resume task ' + packet['task_id']))
+        context = json.loads(resumed['hookSpecificOutput']['additionalContext'])
+        self.assertEqual(context['proofpress_resume']['task_id'], packet['task_id'])
+        self.assertEqual(len([e for e in self.store.events() if e['kind'] == 'task_prepared']), before)
+        wrong = handle(self.ws, 'coding', self.native('UserPromptSubmit', prompt='proofpress resume task another'))
+        self.assertEqual(wrong['decision'], 'block')
+
     def test_native_missing_context_never_allows_pretool(self):
         result = handle(self.ws, 'coding', self.native('PreToolUse', tool_name='Write', tool_input={}))
         self.assertEqual(result['hookSpecificOutput']['permissionDecision'], 'deny')

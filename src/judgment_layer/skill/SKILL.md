@@ -44,13 +44,15 @@ plan. Recheck after repairs. Changed scope, facts, judgments or important handof
 requires fresh context and plan review. Never weaken bindings or approve an
 exception yourself. Ask the human when information or authority is missing.
 
-Before delivery, run `task-finish-files --task TASK` to review actual configured
-files. Use `task-export --task TASK` for the concrete reviewed local file bundle.
-A Claude lifecycle Stop check can additionally assess the actual final response;
-it cannot retract streamed text or authorize email, deployment or other external
-effects. Never present a paused/unknown result as successful delivery. Respect
-any separate pre-action gates. Human exceptions are exact-artifact decisions,
-not permanent judgment edits. Source tests do not establish semantic correctness.
+For a Claude lifecycle task, let Stop review the covered files and actual final
+response together; do not duplicate this with a file-only checkpoint unless a
+separate export or additional evidence is needed. For explicit workflow callers,
+run `task-finish-files --task TASK` and then `task-export --task TASK` for the exact
+reviewed local file bundle. A native Stop check cannot retract streamed text or
+authorize email, deployment or other external effects. Never present a paused or
+unknown result as successful delivery. Respect separate pre-action gates. Human
+exceptions are exact-artifact decisions, not permanent judgment edits. Source
+tests do not establish semantic correctness.
 
 ## Ordinary advice reuse
 

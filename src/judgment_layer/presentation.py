@@ -247,12 +247,39 @@ def render_text(command, result):
         return "Review assistance · "+result['assessment']['choice']+" · "+str(len(result['flags']))+" flags · manual admission required"
     if command == "assess":
         return "No conflict flagged · candidate still needs review" if result["ok"] else "Paused · conflicting or uncertain judgment; inspect --json"
-    if command in {"task-start", "task-finish", "task-check"}:
+    if command == "task-status":
+        labels = {"planning": "Planning", "context_paused": "Context needs clarification",
+                  "plan_paused": "Plan needs review", "executing": "Work in progress",
+                  "delivery_paused": "Delivery paused", "ready": "Reviewed revision ready"}
+        lines = [labels[result["state"]] + " · " + result["task_id"]]
+        if result["paused_boundary"]:
+            lines.append("Paused boundary  " + result["paused_boundary"])
+        if result["assessment"]:
+            lines.append("Assessment  " + {"pass": "Passed model review", "violation": "Model flagged a violation",
+                                         "unknown": "Insufficient certainty; needs review"}[result["assessment"]])
+        lines += ["Reason  " + reason for reason in result["reasons"]]
+        lines += ["Judgment  " + j["name"] + " v" + str(j["version"]) + " · " + j["judgment"]["statement"]
+                  for j in result["judgments"]]
+        lines += ["Reviewed artifact  " + name for name in result["artifacts"]]
+        if result.get("review_path"):
+            lines.append("Inspect review bundle  " + result["review_path"] + " (not delivery approval)")
+        lines += ["Next  " + action for action in result["next"]]
+        lines.append("Reading remains available. Repair writes remain available after a passing plan.")
+        return "\n".join(lines)
+    if command == "task-prepare":
+        lines = [("Context ready" if result["ok"] else "Context paused") + " · " + result["task_id"],
+                 "Context ID  " + result["context_id"], "Plan draft  " + result["plan_path"]]
+        lines += ["Reason  " + reason for reason in result["reasons"]]
+        lines += ["Judgment  " + j["name"] + " v" + str(j["version"]) + " · " + j["record"]["judgment"]["statement"]
+                  for j in result["judgments"]]
+        lines.append("Next  " + result["next"])
+        return "\n".join(lines)
+    if command in {"task-start", "task-finish", "task-check", "task-plan", "task-finish-files", "task-export"}:
         outcome = "Passed" if result["ok"] else "Paused"
         details = result.get("reasons", [])
         if "assessment" in result:
             details = [result["assessment"]["choice"], *details]
-        return outcome + " · " + result["task_id"] + (" · " + "; ".join(details) if details else "")
+        return outcome + " · " + result["task_id"] + (" · " + "; ".join(details) if details else "") + ("\nExported  " + result["path"] if result.get("path") else "")
     if command == "bind":
         return "Runtime binding saved · install the host hook separately"
     if command == "check":

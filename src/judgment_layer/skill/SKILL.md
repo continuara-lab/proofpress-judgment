@@ -18,8 +18,41 @@ For capture or revision, read [the workflow](references/workflow.md). Adapt the
 [synthetic coding example](references/coding.json), using the
 [AJF schema](references/ajf.schema.json). Run `capture --from FILE`; this proposes
 a candidate. Direct the human to `proofpress review` for a numbered inbox and guided review.
-**Never invoke `review`, `withdraw`, `bind`, `configure`, `hooks`, `pause`, `resume`, `unbind`, `uninstall`, or `--confirm` on real records, impersonate
+**Never invoke `review`, `withdraw`, `bind`, `configure`, `hooks`, `pause`, `resume`, `unbind`, `uninstall`, `workflow --confirm`, `workflow-hooks`, `task-exception --confirm`, or `--confirm` on real records, impersonate
 the owner, edit policy or write directly to the store.**
+
+## Enforced workflows
+
+If the host supplies a Proofpress workflow context packet, read its judgments
+before planning. Keep its task id and context id. If not supplied, ask whether a
+workflow is configured; do not pretend ordinary skill activation installed a gate.
+For an explicitly selected workflow, run `task-prepare --task TASK --workflow ID
+--description REQUEST_FILE --format agent` first. The workflow owns facts and
+mandatory scopes; never invent them or silently drop uncertain scope candidates.
+
+Write a concrete plan to the packet's `plan_path`. Include important assumptions,
+relevant judgments and how compliance will be checked. Run `task-plan --task TASK
+--context CONTEXT_ID --plan PLAN_FILE`. A promise to comply is not a plan.
+Do not begin covered source changes until this passes. Use `task-attach --task TASK
+--host HOST --session SESSION_ID` only with the actual current session id for an
+explicit prepared task. Never reuse a different task/session to avoid a pause.
+
+On pause, run `task-status --task TASK`. Distinguish a model-flagged violation from
+unknown/missing evidence. Reading stays available. Failed plan checks require a
+revised plan; failed delivery checks allow working-file repairs after a passing
+plan. Recheck after repairs. Changed scope, facts, judgments or important handoff
+requires fresh context and plan review. Never weaken bindings or approve an
+exception yourself. Ask the human when information or authority is missing.
+
+Before delivery, run `task-finish-files --task TASK` to review actual configured
+files. Use `task-export --task TASK` for the concrete reviewed local file bundle.
+A Claude lifecycle Stop check can additionally assess the actual final response;
+it cannot retract streamed text or authorize email, deployment or other external
+effects. Never present a paused/unknown result as successful delivery. Respect
+any separate pre-action gates. Human exceptions are exact-artifact decisions,
+not permanent judgment edits. Source tests do not establish semantic correctness.
+
+## Ordinary advice reuse
 
 For later work, establish the task's exact scope and factual conditions. Call
 `context --scope SCOPE --facts FILE --actor agent:NAME --purpose PURPOSE --format agent`.

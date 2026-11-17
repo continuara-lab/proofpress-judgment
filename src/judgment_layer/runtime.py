@@ -90,11 +90,17 @@ def bind(store, policy, confirmed):
 def gate(store, event):
     from .hosts import bindings
     policies=bindings(store)
-    if not policies:
-        return {'ok':False,'reason':'No runtime binding configured'}
     if not isinstance(event,dict) or not isinstance(event.get('tool_name'),str) or not isinstance(event.get('tool_input'),dict):
         return {'ok':False,'reason':'Malformed tool event'}
+    from .workflows import action
+    workflow_result = action(store, event)
+    if workflow_result is not None and not workflow_result['ok']:
+        return workflow_result
     tool=event['tool_name']
+    if workflow_result is not None and (tool == 'Bash' or workflow_result.get('control')):
+        return workflow_result
+    if not policies and tool != 'apply_patch':
+        return workflow_result or {'ok':False,'reason':'No runtime binding configured'}
     if tool == 'apply_patch':
         command = event['tool_input'].get('command')
         if not isinstance(command, str) or not command.startswith('*** Begin Patch\n') or not command.rstrip().endswith('*** End Patch'):
@@ -192,7 +198,11 @@ def hook(workspace, event, managed=False):
         store=Store(workspace)
         with store.transaction():
             from .hosts import paused, bindings
-            if managed and (paused(store) or not bindings(store)):
+            from .workflows import attached
+            task_id = attached(store, event) if isinstance(event,dict) else None
+            if task_id:
+                event = {**event, 'proofpress_task_id': task_id}
+            if managed and (paused(store) or (not bindings(store) and not task_id)):
                 result={'ok':True,'reason':'Enforcement paused by owner' if paused(store) else 'No protected actions configured'}
             else:
                 result=gate(store,event)

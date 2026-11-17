@@ -7,12 +7,13 @@ exact revision. [Review and recovery walkthrough](LOCAL-ALPHA.md)
 
 ## Schedule checks by task boundary
 
-For new workflow integrations, use [task-boundary semantic checks](TASK-BOUNDARIES.md):
-one aggregate plan assessment before covered work, deterministic checks on relevant
-actions, and one aggregate artifact assessment before delivery. Explicit release
-checks bind the reviewed artifact bundle to the current task. This prototype
-requires a workflow bridge; managed host hooks do not automatically supply task
-ids or intercept completion. Existing action bindings are not migrated.
+[Context-first enforcement](TASK-BOUNDARIES.md) adds workflow-specific scope criteria,
+Jev-assisted scope resolution, context injection before planning, gated source
+writes, output review, pause/recovery UX and exact-artifact exceptions. Claude has
+an opt-in prompt/pre-tool/Stop bridge; Codex/Cursor use explicit task/session
+attachment. `task-export` gates a concrete reviewed local bundle. Stop cannot
+retract streamed text or authorize external side effects. Existing owner-approved
+action bindings retain their behavior.
 
 ## Install a host hook
 

@@ -31,6 +31,8 @@ def registration(project, workspace, host, env_file=None):
         if not Path(env_file).is_file(): raise JudgmentError('Environment file does not exist')
         command += ['--env-file', env_file]
     command += ['--workspace', str(Path(workspace).resolve()), 'cursor-hook' if host=='cursor' else 'managed-hook']
+    if host != 'cursor':
+        command += ['--host', host]
     # A missing Python/package must emit a host denial rather than a shell error.
     denial = json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'Proofpress could not start; run proofpress doctor'}})
     if host=='cursor':
@@ -104,6 +106,17 @@ def doctor(store, project):
         try: present = m['entry'] in json.loads(path.read_text()).get('hooks', {}).get(m.get('event','PreToolUse'), [])
         except (OSError, ValueError, AttributeError): present = False
         checks.append({'host': host, 'configured': present, 'path': str(path), 'trust': 'Check in host; Proofpress does not grant or infer trust.'})
+    from .lifecycle import manifest_path
+    lifecycle = manifest_path(store)
+    if lifecycle.exists():
+        m = json.loads(lifecycle.read_text()); path = Path(m['path'])
+        try:
+            configured = json.loads(path.read_text()).get('hooks', {})
+            present = all(entry in configured.get(event, []) for event, entry in m['entries'].items())
+        except (OSError, ValueError, AttributeError):
+            present = False
+        checks.append({'host': 'claude-code lifecycle', 'configured': present, 'path': str(path),
+                       'trust': 'Requires host trust and Claude >=2.1.295; no live-host verification implied.'})
     rules = []
     for b in bindings(store):
         r = store.record(b['judgment_id'], b['version'])
@@ -135,16 +148,23 @@ def uninstall(store, project, confirmed=False):
         m=json.loads((store.root/('host-'+host+'.json')).read_text())
         if not Path(m['path']).is_relative_to(root): raise JudgmentError('Hook belongs to another project')
         remove(store,host,False)  # Preflight before changing any files.
+    from .lifecycle import manifest_path, remove as remove_lifecycle
+    lifecycle = json.loads(manifest_path(store).read_text()) if manifest_path(store).exists() else None
+    if lifecycle:
+        if not Path(lifecycle['path']).is_relative_to(root):
+            raise JudgmentError('Lifecycle hook belongs to another project')
+        remove_lifecycle(store, lifecycle['workflow_id'], False)
     startup_changes, edited_startup = plan_removal(store.root, root)
     if confirmed:
         apply_changes(startup_changes)
         if (store.root / "startup.json").exists():
             atomic_json(store.root / "startup.json", edited_startup)
         for host in hosts: remove(store,host,True)
+        if lifecycle: remove_lifecycle(store, lifecycle['workflow_id'], True)
         for name in removed: Path(name).unlink()
         if manifest.exists(): atomic_json(manifest,{k:v for k,v in files.items() if k not in removed})
     preserved.extend(edited_startup)
-    preview = f"Preview: {len(removed)} skill files, {len(startup_changes)} startup files and {len(hosts)} hooks. Repeat with --confirm."
+    preview = f"Preview: {len(removed)} skill files, {len(startup_changes)} startup files and {len(hosts) + bool(lifecycle)} hook registrations. Repeat with --confirm."
     result = 'Removed integration. Restart your agent. Judgment store preserved.' if confirmed else preview
     if preserved:
         result += ' Edited files preserved: ' + ', '.join(preserved)

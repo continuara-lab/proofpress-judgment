@@ -6,7 +6,7 @@ The caller must block actual delivery on check_release and supply complete artif
 import json
 
 from .assessment import assess
-from .model import JudgmentError, canonical, digest, validate_facts
+from .model import JudgmentError, digest, validate_facts
 
 OPTIONS = {
     "pass": "All supplied judgments are satisfied, with sufficient supplied evidence.",
@@ -36,10 +36,19 @@ def items(store, scope, facts):
 
 def freshness(store, start, facts):
     data = start["data"]
-    result = store.check(data["receipt"]["receipt_id"], facts)
-    reasons = list(result["reasons"])
-    if items(store, data["scope"], facts) != data["receipt"]["items"]:
-        reasons.append("judgment_set_changed")
+    reasons = []
+    for receipt in data.get("receipts", [data["receipt"]]):
+        reasons.extend(store.check(receipt["receipt_id"], facts)["reasons"])
+        if items(store, receipt["scope"], facts) != receipt["items"]:
+            reasons.append("judgment_set_changed")
+    if "prepare_id" in data:
+        prepared = latest(store, data["task_id"], "task_prepared")
+        if prepared is None or prepared["event_id"] != data["prepare_id"]:
+            reasons.append("task_context_replaced")
+        from .workflows import configuration
+        policy = configuration(store, data["workflow_id"])
+        if digest(policy) != data["workflow_digest"]:
+            reasons.append("workflow_changed")
     if data["assessment"]["choice"] != "pass":
         reasons.append("task_start_not_passed")
     return {"ok": not reasons, "reasons": reasons}
@@ -102,7 +111,7 @@ def finish_task(store, task_id, facts, outputs, evidence="", actor="agent:task")
         data = start["data"]
         assessment = assess(
             {"stage": "task_finish", "plan": data["plan"], "facts": facts,
-             "judgments": records(store, data["receipt"]["items"]),
+             "judgments": records(store, data.get("items", data["receipt"]["items"])),
              "artifacts": outputs, "evidence": evidence},
             "Do the actual supplied artifacts satisfy every judgment and the task plan? "
             "Evaluate the artifacts and supporting evidence. Self-reported success is not proof. "
@@ -111,6 +120,7 @@ def finish_task(store, task_id, facts, outputs, evidence="", actor="agent:task")
     event = store.append("task_finished", actor, data={
         "task_id": task_id, "start_id": start["event_id"],
         "artifacts_digest": digest(outputs), "evidence_digest": digest(evidence),
+        "artifact_digests": {name: digest(content) for name, content in outputs.items()},
         "assessment": assessment, "freshness": fresh})
     return {"ok": fresh["ok"] and assessment["choice"] == "pass",
             "task_id": task_id, "finish_id": event["event_id"],
@@ -139,6 +149,12 @@ def check_release(store, task_id, facts, outputs):
         action = latest(store, task_id, "task_action")
         if action and action["seq"] > finish["seq"]:
             reasons.append("action_after_finish")
+    if finish and "workflow_id" in start["data"] and "task_finish_not_passed" in reasons:
+        exception = latest(store, task_id, "task_exception")
+        if (exception and exception["data"]["finish_id"] == finish["event_id"]
+                and exception["data"]["artifacts_digest"] == digest(outputs)
+                and exception["data"]["start_id"] == start["event_id"]):
+            reasons.remove("task_finish_not_passed")
     return {"ok": not reasons, "task_id": task_id, "reasons": reasons,
             "artifacts_digest": digest(outputs),
             "boundary": "Caller must deliver these exact artifacts; external release is not atomic."}
@@ -156,7 +172,8 @@ def action_check(store, event, policy):
         return {"ok": False, "reason": str(exc)}
     data = start["data"]
     expected = {"id": policy["judgment_id"], "version": policy["version"], "digest": policy["digest"]}
-    if data["scope"] != policy["scope"] or expected not in data["receipt"]["items"]:
+    if (policy["scope"] not in data.get("scopes", [data["scope"]])
+            or expected not in data.get("items", data["receipt"]["items"])):
         return {"ok": False, "reason": "Task does not cover this bound judgment"}
     fresh = freshness(store, start, data["receipt"]["facts"])
     if not fresh["ok"]:

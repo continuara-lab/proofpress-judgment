@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "judgment-layer"
 version = "0.1.0a6"
-description = "Carry human and agent judgment into later work with local review, reuse and lifecycle controls"
+description = "Behavioral contracts for coding agents: capture, review and reuse scoped judgments with checks"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

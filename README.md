@@ -4,31 +4,39 @@
 
 # Proofpress
 
-**Your judgment. Built into your agents.**
+**Behavioral contracts for coding agents.**
 
-Everything is recorded. Your agent still repeats the same mistakes.
-Proofpress helps carry your guidance and agent experience into later work—as
-judgments you can review, reuse and update.
+**Stop silent failures in your coding agent.**
 
-**The open-source judgment layer for agents.**
+Everything is recorded. Agents still repeat the same mistakes. Proofpress turns
+human steering and consequential agent decisions into reviewed behavioral
+contracts: what to do, why, when it applies, and how to check that agents follow it.
+Start with one developer, one project and a correction worth carrying forward
+across Codex, Claude Code and Cursor.
+
+- **Capture the choice and its boundaries.** Keep the rationale, evidence and conditions with the instruction.
+- **Review the behavior before enabling it.** Approve the guidance, applicable checks and failure handling together.
+- **Check at the right time.** Supply relevant context, check covered actions, and review declared artifacts at completion.
+- **Recalibrate when conditions change.** Revise or withdraw a judgment; keep its history and stop reusing stale approvals.
+
 [Website](https://proofpress.dev) · [Quick start](#quick-start) ·
-[Import past sessions](#import-past-sessions) · [Enforcement](#enforce-judgments) · [Docs](#documentation)
+[Architecture](#architecture) · [Enforcement](#enforce-judgments) · [Docs](#documentation)
 
-## What is a judgment?
+## A correction becomes a behavioral contract
 
-A choice worth carrying forward, with its reasons and boundaries. For example:
+A judgment records a consequential choice with its reasons and limits. Add the
+checks that should govern later work, review them together, and it becomes a
+behavioral contract. For example:
 
-> **Cache search results. Recheck file access.**
-> **Why:** Older results are acceptable. Exposing private files is not.
-> **When:** Public results and previews.
-> **Excludes:** Private content and access checks.
+> **Change the source schema. Regenerate the client.**
+> **Why:** Direct client edits are overwritten by the next generator run.
+> **Applies:** Changes to this project's API and generated client.
+> **Checks:** Reject direct edits to `src/generated/*`; review the plan and delivery evidence against the judgment.
+> **On failure:** Request repair, or pause for human review when evidence is missing.
 
-A judgment can shape one task or guide a project over time. Keep the choice,
-the tradeoff behind it and the conditions that would change it. A judgment can also
-carry its task-matching criteria, context, action constraints, plan/delivery checks
-and what to do when a check fails. Both you and
-an agent can propose judgments. If search starts powering urgent alerts, the
-tradeoff changes. **Cache public results. Keep urgent alerts live.**
+An agent can draft the judgment and its checks from your correction or its own
+work. You review the exact revision before it can govern later tasks. A judgment
+can also remain advice-only; not every useful lesson needs a blocking check.
 
 ## Quick start
 
@@ -71,13 +79,38 @@ automatic listener for every message.
 
 ## How it works
 
-An agent proposes a judgment from work in a session. You review it once. Later
-sessions can look up the current approved version when the scope and conditions
-match. With enforcement connected, Proofpress reads the checks declared inside
-that judgment: provide context before planning, check relevant actions, and review
-actual artifacts before delivery. No separate workflow configuration is required.
-You can record outcomes and revise or withdraw guidance as conditions change.
-[Architecture and storage](docs/ARCHITECTURE.md)
+**Capture & review → Reuse → Learn → Recalibrate.** Governance spans the loop.
+An approved judgment can guide later applicable tasks; observations can support
+or challenge it; a new review can narrow, replace or withdraw it. In this local
+CLI, Learn means recording sourced observations; Recalibrate means manually
+reviewing revisions or withdrawals.
+
+During reuse, the contract declares where to intervene: before execution,
+before relevant actions, or at completion. The host connection supplies those
+events and Proofpress applies the checks. No separate workflow configuration is
+required. Coverage depends on the host and the controlled operation.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    C["Capture and human review"] --> S["AJF contracts in local SQLite"]
+    S -->|current approved contracts| H["Proofpress CLI and host hooks"]
+    A["Claude Code / Codex / Cursor"] -->|task, action or completion| H
+    H --> V{"Rules or Jev assessment"}
+    V -->|pass| A
+    V -->|violation or unknown| R["Repair or human review"]
+    R -->|retry work| A
+    R -->|revise contract| C
+```
+
+The contract is portable **AJF JSON**. The local **SQLite store** keeps immutable
+versions, approvals and check receipts. **Host hooks** supply events; Proofpress
+resolves current applicability and runs the declared **verifiers**. One connection
+per host serves the project's approved contracts; adding a judgment does not
+require installing another host hook.
+
+[Architecture and storage](docs/ARCHITECTURE.md) · [Checks, host coverage and recovery](docs/BEHAVIOR.md)
 
 ### From reviewed judgment to behavior
 

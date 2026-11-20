@@ -1,7 +1,10 @@
-# How Proofpress works
+# Behavioral contracts: how Proofpress works
 
-The portable judgment carries its optional behavior; local run records track
-execution. See the [runtime diagram](BEHAVIOR.md#runtime-architecture).
+Proofpress turns reviewed human and agent judgments into behavioral contracts for
+coding agents. A contract carries the decision, rationale, applicability and
+optional behavior checks. AJF is its portable representation; local records keep
+review authority and execution receipts. See the [simple architecture diagram](../README.md#architecture)
+and the [runtime detail](BEHAVIOR.md#runtime-architecture).
 
 1. **Agent session.** Your project guidance tells the agent when to propose useful
    judgments. You can also import selected local transcripts from Codex, Claude
@@ -21,8 +24,9 @@ execution. See the [runtime diagram](BEHAVIOR.md#runtime-architecture).
 ## What lives in the project
 
 Proofpress is a Python CLI with a project-local SQLite store in `.judgment/`.
-The store contains immutable AJF revisions, governance events, enforcement
-legacy bindings, context receipts, task/run records, outcome observations and any imported excerpts.
+The store contains immutable AJF revisions, governance events, context receipts,
+task/run records, outcome observations, imported excerpts and legacy enforcement
+bindings.
 Review authority stays in the local store when AJF is exported.
 
 The journal binds events to exact content digests. Store transactions verify
@@ -68,7 +72,7 @@ define the limits of local enforcement.
 ## Optional decision model
 
 Proofpress checks structured assertions, scope, conditions and versions locally.
-Jev, called through TypeSafe, supports three opt-in checks:
+Jev, called through TypeSafe, supports these opt-in assessments:
 
 | Entry point | What Jev receives | What Proofpress does with the result |
 | --- | --- | --- |

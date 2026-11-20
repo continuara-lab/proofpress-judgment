@@ -24,7 +24,9 @@ A choice worth carrying forward, with its reasons and boundaries. For example:
 > **Excludes:** Private content and access checks.
 
 A judgment can shape one task or guide a project over time. Keep the choice,
-the tradeoff behind it and the conditions that would change it. Both you and
+the tradeoff behind it and the conditions that would change it. A judgment can also
+carry its task-matching criteria, context, action constraints, plan/delivery checks
+and what to do when a check fails. Both you and
 an agent can propose judgments. If search starts powering urgent alerts, the
 tradeoff changes. **Cache public results. Keep urgent alerts live.**
 
@@ -69,31 +71,41 @@ automatic listener for every message.
 
 ## How it works
 
-![Proofpress flow from an agent session to a draft judgment, human review and reuse in a later session, with an optional hook for covered tool actions.](assets/judgment-flow.svg)
-
 An agent proposes a judgment from work in a session. You review it once. Later
 sessions can look up the current approved version when the scope and conditions
-match. You can record outcomes and revise or withdraw guidance as conditions change.
+match. With enforcement connected, Proofpress reads the checks declared inside
+that judgment: provide context before planning, check relevant actions, and review
+actual artifacts before delivery. No separate workflow configuration is required.
+You can record outcomes and revise or withdraw guidance as conditions change.
 [Architecture and storage](docs/ARCHITECTURE.md)
 
-### Three checks in the workflow
+### From reviewed judgment to behavior
 
-| Step | What Proofpress checks | Who decides |
+| Stage | What happens | Boundary |
 | --- | --- | --- |
-| **Admission review** | Local checks flag invalid or conflicting candidates. Optional Jev advice checks whether the evidence and scope meet your review policy. | You approve the exact revision. |
-| **Retrieval** | SQLite stores the records. The CLI filters approved versions by exact scope, task facts, validity and dependencies. | The agent receives eligible guidance for the task. |
-| **Tool enforcement** | An optional pre-tool hook checks a covered action against a specific approved version and binding. | The hook can pause the action. The host retains its own permissions. |
+| **Review** | You inspect the judgment, rationale, conditions and optional behavior together. | Approval covers the exact revision, including its checks. |
+| **Before execution** | The project-local judgment inventory is evaluated using known facts and optional task criteria; relevant context is supplied before a declared plan check. | Semantic task matching can be wrong; uncertainty pauses. |
+| **During execution** | Only matching action rules run, such as rejecting a direct edit to generated files. | These checks are deterministic; they do not call a model per tool action. |
+| **Before delivery** | Declared delivery checks review actual files within the judgment's artifact paths, including new files and deletions. | Failed or uncertain checks keep delivery unapproved; repairs require rechecking. |
 
-[Configure model review](docs/INTAKE.md#review-policy) · [How retrieval works](docs/ARCHITECTURE.md#how-retrieval-works) · [Enforcement](#enforce-judgments)
+Hooks declare **when** to check; verifiers declare **how** to check. They belong to
+the judgment. A host connection supplies events and honors the results.
+[Architecture](docs/ARCHITECTURE.md) · [Behavior and examples](docs/BEHAVIOR.md)
 
 ## Agent Judgment Format (AJF)
 
-AJF is the portable JSON format for a judgment. It captures **what you chose,
-why, when it applies, and where it came from**. Proofpress keeps approvals and
-hook bindings separately in the project's local store, tied to the exact version.
+AJF is the portable JSON format for a judgment. Version `0.4-draft` adds optional
+`applicability.task_criteria` and `behavior`: context, hooks, verifiers, artifact
+coverage and failure handling. Existing 0.1–0.3 records remain readable and their
+digests are unchanged. Advice-only records do not acquire checks automatically.
+
+Most judgments are one JSON document. Built-in rules and semantic check criteria
+need no additional code. This version **does not execute custom verifier scripts**.
+Approvals, task sessions and check receipts remain local records; importing JSON
+does not import authority.
 
 [Format guide](docs/AJF.md) · [JSON schema](src/judgment_layer/ajf.schema.json) ·
-[Example record](examples/contextual-judgment.json)
+[Judgment with behavior](examples/behavior-judgment.json)
 
 ## Import past sessions
 
@@ -130,33 +142,40 @@ Cursor. Redaction is best effort. [Supported transcripts and import guide](docs/
 
 ## Enforce judgments
 
-Use hooks when a judgment should pause a covered tool action. In
-`proofpress review`, choose **Enforcement** and review the paths and check
-alongside the judgment. One approval binds both to the exact revision.
-
-Run the command for your agent from the project you want to protect.
-
-**Codex**
+Start with a judgment that declares its own checks. This prints a synthetic
+example to adapt; capture proposes it and human review approves the whole revision:
 
 ```sh
-proofpress hooks install --host codex --confirm
+proofpress example --behavior > judgment.json
+proofpress capture --from judgment.json
+proofpress review
 ```
 
-**Claude Code**
+Connect the project once. No workflow JSON or separate per-judgment binding is
+needed for these embedded checks. Preview first, then install with `--confirm`:
 
 ```sh
-proofpress hooks install --host claude-code --confirm
+proofpress enforce install --host claude-code
+proofpress enforce install --host claude-code --confirm
 ```
 
-**Cursor**
+Claude Code receives task context on prompt submission, checks covered actions,
+and reviews declared artifacts plus the final response on Stop. Start a new
+session and complete the host's trust flow. Protocol fixtures cover this new
+path; live-host lifecycle verification is still pending. Stop cannot retract
+streamed text or prevent an earlier external side effect.
 
-```sh
-proofpress hooks install --host cursor --confirm
-```
+For Codex or Cursor, `enforce install --host codex|cursor --confirm` installs the
+action adapter. Task preparation/session attachment and completion checks still
+need explicit integration; see the [CLI example](docs/BEHAVIOR.md#codex-and-cursor).
 
-Restart the agent and complete its project and hook trust flow. Run
-`proofpress doctor` to inspect configuration and the last observed check.
-[Tool coverage and recovery](docs/RUNTIME.md)
+Run `proofpress doctor` to inspect connections, judgment checks and observed
+actions. An installed entry may receive every tool event, but only matching
+checks run; normal semantic plan/delivery review is aggregated at task boundaries,
+with extra calls for task recognition and retries. Unsupported shell/MCP routes
+pause rather than being assumed safe. Arbitrary generator/test/build commands are
+not covered yet. Existing explicit bindings/workflow commands remain advanced
+compatibility interfaces. [Coverage and recovery](docs/BEHAVIOR.md)
 
 ### Optional Jev checks — bring your own key
 
@@ -165,6 +184,7 @@ interpretation of meaning, context or exceptions.
 
 - **Review a candidate.** Assess whether its evidence and scope meet your project's review criteria, then give you an approval recommendation.
 - **Check for conflicts.** Assess whether a proposed judgment contradicts approved guidance under overlapping conditions.
+- **Apply declared behavior.** Evaluate task criteria and aggregate plan/delivery checks when a reviewed judgment requests them. These inputs can include task text, plans and declared artifact contents.
 
 For example, “cache all search results” needs review if approved guidance
 requires urgent alerts to use live data. Jev can assess that overlap and

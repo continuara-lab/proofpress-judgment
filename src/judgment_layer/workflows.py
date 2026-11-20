@@ -16,6 +16,9 @@ from .tasks import (OPTIONS, artifacts, check_release, finish_task, freshness,
 
 
 def configuration(store, workflow_id):
+    from .behavior import AUTOMATIC, policy
+    if workflow_id == AUTOMATIC:
+        return policy(store)
     event = next((e for e in reversed(store.events()) if e['kind'] == 'workflow_configured'
                   and e['data']['policy']['id'] == workflow_id), None)
     if event is None:
@@ -64,6 +67,9 @@ def configure(store, policy, confirmed=False):
 
 
 def prepare(store, task_id, workflow_id, task):
+    from .behavior import AUTOMATIC, prepare as prepare_behavior
+    if workflow_id == AUTOMATIC:
+        return prepare_behavior(store, task_id, task)
     identity(task_id)
     if not isinstance(task, str) or not task.strip():
         raise JudgmentError('Task description must be nonempty')
@@ -122,20 +128,25 @@ def plan(store, task_id, context_id, text):
     policy = configuration(store, p['workflow_id'])
     reasons = list(p['reasons'])
     if digest(policy) != p['workflow_digest']:
-        reasons.append('workflow_changed')
+        reasons.append('judgment_behavior_or_connection_changed' if p.get('behavior_task') else 'workflow_changed')
     for receipt in p['receipts']:
         reasons.extend(store.check(receipt['receipt_id'], p['facts'])['reasons'])
         from .tasks import items
-        if items(store, receipt['scope'], p['facts']) != receipt['items']:
+        if not p.get('behavior_task') and items(store, receipt['scope'], p['facts']) != receipt['items']:
             reasons.append('judgment_set_changed')
     snapshot = [item for receipt in p['receipts'] for item in receipt['items']]
     result = {'choice': 'unknown', 'reason': 'task_context_unavailable'}
     if not reasons:
-        result = assess({'task': p['task'], 'plan': text, 'facts': p['facts'],
-                         'judgments': records(store, snapshot)},
-                        'Does the concrete plan satisfy the task and every judgment, including '
-                        'conditions and exceptions? Unsupported assumptions or a mere promise '
-                        'to comply are unknown.', OPTIONS)
+        if p.get('behavior_task'):
+            from .behavior import assess_stage
+            result = assess_stage(records(store, snapshot), 'before_execution',
+                                  {'task': p['task'], 'plan': text, 'facts': p['facts']})
+        else:
+            result = assess({'task': p['task'], 'plan': text, 'facts': p['facts'],
+                             'judgments': records(store, snapshot)},
+                            'Does the concrete plan satisfy the task and every judgment, including '
+                            'conditions and exceptions? Unsupported assumptions or a mere promise '
+                            'to comply are unknown.', OPTIONS)
     data = {**p, 'scope': p['scopes'][0] if p['scopes'] else '',
             'receipt': p['receipts'][0] if p['receipts'] else {},
             'prepare_id': context_id, 'plan': text, 'items': snapshot,
@@ -227,7 +238,7 @@ def action(store, event):
     if not path.is_relative_to(root) or path.is_relative_to(store.root.resolve()):
         return {'ok': False, 'reason': 'Workflow write outside project or into protected workspace'}
     relative = path.relative_to(root).as_posix()
-    if not any(fnmatch.fnmatchcase(relative, p) for p in policy['paths']):
+    if not prepared['data'].get('behavior_task') and not any(fnmatch.fnmatchcase(relative, p) for p in policy['paths']):
         return {'ok': False, 'reason': 'Write outside declared workflow paths; expand scope through owner review'}
     begin = latest(store, task_id, 'task_started')
     if begin is None or 'prepare_id' not in begin['data']:
@@ -249,7 +260,7 @@ def covered_files(store, policy):
         for name in list(directories):
             path = parent / name
             relative = path.relative_to(root).as_posix()
-            if name == '.git' or path.resolve().is_relative_to(store.root.resolve()):
+            if name in {'.git', '.claude', '.codex', '.cursor', '.venv', 'node_modules', '__pycache__'} or path.resolve().is_relative_to(store.root.resolve()):
                 directories.remove(name)
             elif path.is_symlink() and any(fnmatch.fnmatchcase(relative, p) or p.startswith(relative + '/')
                                            for p in policy['paths']):
@@ -257,7 +268,12 @@ def covered_files(store, policy):
         for name in files:
             path = parent / name
             relative = path.relative_to(root).as_posix()
-            if any(fnmatch.fnmatchcase(relative, p) for p in policy['paths']):
+            if name.startswith('.env'):
+                continue
+            from .behavior import matches
+            if matches(relative, policy['paths']):
+                if relative.startswith('@'):
+                    raise JudgmentError('Artifact name collides with reserved review metadata: ' + relative)
                 if path.is_symlink() or path.resolve().is_relative_to(store.root.resolve()):
                     raise JudgmentError('Unsafe artifact: ' + relative)
                 selected.append(relative)
@@ -266,7 +282,7 @@ def covered_files(store, policy):
 
 def snapshot(store, task_id):
     begin = started(store, task_id)
-    policy = configuration(store, begin['data']['workflow_id'])
+    policy = begin['data'].get('artifact_policy') or configuration(store, begin['data']['workflow_id'])
     root = Path(policy['project_root'])
     outputs = {}
     names = covered_files(store, policy)
@@ -286,7 +302,10 @@ def snapshot(store, task_id):
     prepared = latest(store, task_id, 'task_prepared')
     for deleted in set(prepared['data']['initial_files']) - set(names):
         outputs['@deleted/' + deleted] = 'File deleted since task context preparation.'
-    return outputs
+    if not outputs and begin['data'].get('behavior_task') and policy['paths']:
+        raise JudgmentError('No reviewable files found for the declared delivery paths')
+    return outputs or ({'@coverage': 'No before_delivery artifact checks requested.'}
+                       if begin['data'].get('behavior_task') else {})
 
 
 def finish_files(store, task_id, response=None, evidence=''):
@@ -312,7 +331,7 @@ def finish_files(store, task_id, response=None, evidence=''):
 def exception(store, task_id, outputs, reason, confirmed=False):
     outputs = artifacts(outputs)
     begin = started(store, task_id)
-    policy = configuration(store, begin['data']['workflow_id'])
+    policy = begin['data'].get('artifact_policy') or configuration(store, begin['data']['workflow_id'])
     if not policy['allow_exceptions'] or not freshness(store, begin, policy['facts'])['ok']:
         raise JudgmentError('Exceptions disabled or task context stale; cannot override')
     finish = latest(store, task_id, 'task_finished')
@@ -360,7 +379,7 @@ def status(store, task_id):
     state, reasons, outcome = 'planning', list(p['reasons']), None
     policy = configuration(store, p['workflow_id'])
     if digest(policy) != p['workflow_digest']:
-        reasons.append('workflow_changed')
+        reasons.append('judgment_behavior_or_connection_changed' if p.get('behavior_task') else 'workflow_changed')
     if reasons:
         state = 'context_paused'
     elif begin is not None and begin['data'].get('prepare_id') == prepared['event_id']:
@@ -378,7 +397,8 @@ def status(store, task_id):
                 try:
                     current = snapshot(store, task_id)
                     expected = finish['data'].get('artifact_digests', {})
-                    unchanged = all(expected.get(name) == digest(text) for name, text in current.items())
+                    unchanged = ({name: digest(text) for name, text in current.items()} ==
+                                 {name: value for name, value in expected.items() if name != '@response'})
                     if not unchanged:
                         state = 'delivery_paused'
                         reasons.append('artifacts_changed')
@@ -405,6 +425,7 @@ def status(store, task_id):
     return {'ok': state == 'ready', 'task_id': task_id, 'state': state,
             'paused_boundary': 'delivery' if state == 'delivery_paused' else 'execution' if state in {'context_paused', 'plan_paused', 'planning'} else None,
             'assessment': outcome, 'reasons': reasons, 'next': action_labels[state],
+            'delivery_coverage': finish['data']['assessment'].get('coverage', 'assessed') if finish else 'not_checked',
             'artifacts': finish['data'].get('artifact_digests', {}) if finish else {},
             'review_id': finish['event_id'] if finish else None,
             'review_path': str(store.root.resolve() / 'reviews' / (finish['event_id'] + '.json')) if finish else None,

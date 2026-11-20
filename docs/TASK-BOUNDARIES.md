@@ -1,5 +1,10 @@
 # Context-first enforcement
 
+> **Default: judgment-owned behavior.** Use [Behavior](BEHAVIOR.md) and
+> `proofpress enforce install`; no workflow configuration or separate binding is
+> required. The explicit bindings/workflow configuration below remains an advanced
+> compatibility interface. New lifecycle integration is protocol-tested, not live-host verified.
+
 This workflow schedules semantic review before source execution and before delivery.
 It adds owner-defined scope criteria, context-first planning, host task attachment,
 recoverable pauses, and an exact-file delivery gate. Existing action bindings keep

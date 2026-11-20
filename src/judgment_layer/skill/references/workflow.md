@@ -66,3 +66,14 @@ Recheck with `task-finish-files`; `task-export` gates the actual local file bund
 Never invoke owner workflow changes or confirm an artifact exception on the user's
 behalf. CLI/skill guidance alone is not interception; inspect installed hooks and
 read the workflow coverage in docs/TASK-BOUNDARIES.md before claiming enforcement.
+
+## Optional behavior in the same judgment
+
+Inspect `proofpress example --behavior` for AJF 0.4. Put semantic task criteria in
+`applicability.task_criteria`. Put context, event/verifier declarations, artifact
+paths/required files and supported failure handling in `behavior`. Propose only
+checks grounded in the actual correction; do not add blocking constraints to
+every lesson. New hooks or changed criteria require a new candidate revision and
+human review. `expected_outcome.verification` remains descriptive prose; it does
+not activate a verifier. No separate workflow or binding is needed. Custom-code
+verifiers are not supported. The host connection is a separate human action.

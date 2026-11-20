@@ -99,7 +99,16 @@ def gate(store, event):
     tool=event['tool_name']
     if workflow_result is not None and (tool == 'Bash' or workflow_result.get('control')):
         return workflow_result
-    if not policies and tool != 'apply_patch':
+    from .behavior import action as behavior_action, inventory
+    behavior_records = inventory(store)
+    if behavior_records and workflow_result is None and tool not in {'Read', 'Glob', 'Grep'}:
+        if any(h['event'] in {'before_execution', 'before_delivery'}
+               for r in behavior_records for h in r['behavior']['hooks']):
+            return {'ok': False, 'reason': 'Prepare and attach this task before execution so judgment requirements can be resolved'}
+    behavior_result = behavior_action(store, event)
+    if behavior_result is not None and not behavior_result['ok']:
+        return behavior_result
+    if not policies and not behavior_records and tool != 'apply_patch':
         return workflow_result or {'ok':False,'reason':'No runtime binding configured'}
     if tool == 'apply_patch':
         command = event['tool_input'].get('command')
@@ -202,7 +211,8 @@ def hook(workspace, event, managed=False):
             task_id = attached(store, event) if isinstance(event,dict) else None
             if task_id:
                 event = {**event, 'proofpress_task_id': task_id}
-            if managed and (paused(store) or (not bindings(store) and not task_id)):
+            from .behavior import inventory
+            if managed and (paused(store) or (not bindings(store) and not task_id and not inventory(store))):
                 result={'ok':True,'reason':'Enforcement paused by owner' if paused(store) else 'No protected actions configured'}
             else:
                 result=gate(store,event)

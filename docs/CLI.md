@@ -13,7 +13,9 @@ No automatic listener is installed.
 - `proofpress edit ID` opens a concise TOML form in `$VISUAL` / `$EDITOR` / `vi`.
 - `proofpress withdraw ID` guides manual withdrawal and explains remaining protection.
 - `proofpress doctor` distinguishes configuration, bindings and observed runtime checks.
-- `proofpress hooks install --host codex` previews host registration; `--confirm` installs it.
+- `proofpress example --behavior` prints a judgment with task criteria and optional checks.
+- `proofpress enforce install --host claude-code` previews judgment-owned lifecycle checks; `--confirm` connects them. No workflow configuration is needed.
+- `proofpress hooks install --host codex` remains available for legacy action bindings.
 - `proofpress match --scope SCOPE --facts FILE` explains applicability without a model call.
 - `proofpress pause --confirm`, `resume --confirm` and `unbind ID --confirm` explicitly change protection.
 - `proofpress uninstall --confirm` removes managed integration and retains the store.
@@ -190,3 +192,29 @@ rationale and applicability. Historical events and source metadata stay in the
 store. This is a projection, not a portable AJF record. `--json` (or `--format
 json`) returns full data; `show ID` shows readable review details. Scripts that
 previously relied on implicit JSON must now request `--json`.
+
+## Judgment-owned enforcement
+
+Use [Behavior](BEHAVIOR.md) for the full example and coverage limits.
+
+```sh
+proofpress example --behavior > judgment.json
+proofpress capture --from judgment.json
+proofpress review
+proofpress enforce install --host claude-code --confirm
+proofpress doctor
+```
+
+`enforce install --facts facts.json` supplies human-reviewed project facts;
+missing facts pause rather than being inferred. Omit it to preserve the connection's
+current facts. The one-time connection owns host/project/provider settings, while
+each judgment owns its applicability and checks.
+
+`task-prepare --task TASK --description REQUEST_FILE` defaults to admitted
+judgments, without `--workflow`. It supplies context and `requires_plan` plus a
+context token. Only a declared `before_execution` hook requires `task-plan`.
+Use `task-attach` for explicit host sessions and `task-finish-files`/`task-export`
+for reviewed file bundles. Claude's native Stop path reviews files and response
+together; don't duplicate it with file-only review for ordinary completion.
+Existing `workflow`, `workflow-hooks`, `bind` and explicit `task-start` interfaces
+remain available to advanced integrations. They are not prerequisites for AJF 0.4.

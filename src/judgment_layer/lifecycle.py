@@ -74,6 +74,10 @@ def handle(workspace, workflow_id, event):
                     '(use the supplied plan_command so provider configuration is preserved). '
                     'Source writes require a passing plan. Never confirm owner actions. If context '
                     'is paused, ask for scope/fact clarification; do not guess.'}
+                if result.get('requires_plan') is False:
+                    instruction['instruction'] = ('Read supplied judgments and context. No before_execution '
+                        'check was requested, so no task-plan is required. Declared action/delivery checks '
+                        'remain active. Never confirm owner actions or report an unknown check as passed.')
                 return {'hookSpecificOutput': {'hookEventName': kind,
                                                'additionalContext': json.dumps(instruction)}}
             if (kind == 'PreToolUse' and isinstance(event.get('tool_name'), str)
@@ -133,11 +137,11 @@ def manifest_path(store):
     return store.root / 'workflow-host-claude.json'
 
 
-def install(store, workflow_id, confirmed=False, env_file=None):
+def install(store, workflow_id, confirmed=False, env_file=None, project=None):
     from .hosts import atomic_json
     from .setup import check_path
     policy = configuration(store, workflow_id)
-    root = Path(policy['project_root'])
+    root = Path(project or policy['project_root'])
     path = root / '.claude/settings.local.json'
     check_path(path, root)
     value = json.loads(path.read_text()) if path.exists() else {}
@@ -149,7 +153,8 @@ def install(store, workflow_id, confirmed=False, env_file=None):
         if not env_path.is_file():
             raise JudgmentError('Provider env file missing')
         command += ['--env-file', str(env_path)]
-    command += ['workflow-hook', '--workflow', workflow_id]
+    from .behavior import AUTOMATIC
+    command += ['behavior-hook'] if workflow_id == AUTOMATIC else ['workflow-hook', '--workflow', workflow_id]
     previous = json.loads(manifest_path(store).read_text()) if manifest_path(store).exists() else None
     if previous and (previous['path'] != str(path) or previous['workflow_id'] != workflow_id):
         raise JudgmentError('Remove the existing lifecycle registration before changing workflow/project')

@@ -123,7 +123,12 @@ def doctor(store, project):
         rules.append({'id': r['id'], 'name': r['name'], 'version': r['version'], 'state': store.state(r), 'paths': b['paths'], 'verifier': b['verifier'], 'project_root': b['project_root']})
     events = [e for e in store.events() if e['kind'] == 'runtime_checked']
     last = events[-1] if events else None
+    from .behavior import inventory
+    behaviors = [{'id': r['id'], 'name': r['name'], 'version': r['version'],
+                  'scope': r['applicability']['scope'], 'events': [h['event'] for h in r['behavior']['hooks']]}
+                 for r in inventory(store)]
     return {'doctor': True, 'project': str(root), 'workspace': str(store.root.resolve()), 'paused': paused(store),
+            'behaviors': behaviors,
             'skills': [a for a, p in AGENTS.items() if (root/p/'proofpress/SKILL.md').is_file()],
             'hosts': checks, 'bindings': rules, 'last_check': {'at': last['at'], **last['data']['result']} if last else None,
             'audit': store.audit()}

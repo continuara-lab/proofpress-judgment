@@ -1,6 +1,7 @@
 # How Proofpress works
 
-![Flow from agent session to draft AJF record, human review, later reuse and optional enforcement with local checks or Jev.](../assets/judgment-flow.svg)
+The portable judgment carries its optional behavior; local run records track
+execution. See the [runtime diagram](BEHAVIOR.md#runtime-architecture).
 
 1. **Agent session.** Your project guidance tells the agent when to propose useful
    judgments. You can also import selected local transcripts from Codex, Claude
@@ -8,10 +9,12 @@
 2. **Draft judgment.** The [Agent Judgment Format](AJF.md) records the choice,
    rationale, original situation, applicability and source.
 3. **Human review.** Edit, approve or reject the exact revision. For covered
-   actions, review an optional enforcement binding alongside the judgment.
+   actions, review the hooks, verifiers, artifact coverage and failure handling
+   embedded in that judgment. A separate binding is only a legacy interface.
 4. **Later agent session.** The CLI supplies current approved judgments whose
-   scopes, conditions, validity and dependencies match. A separately installed
-   host hook checks bound actions before they execute.
+   scopes, conditions, validity and dependencies match. A one-time host connection
+   supplies task/action/completion events; declared checks are selected from AJF.
+   No user-authored workflow configuration is required.
 
 [Import past sessions](INTAKE.md) · [Enforce judgments](RUNTIME.md)
 
@@ -19,7 +22,7 @@
 
 Proofpress is a Python CLI with a project-local SQLite store in `.judgment/`.
 The store contains immutable AJF revisions, governance events, enforcement
-bindings, context receipts, outcome observations and any imported excerpts.
+legacy bindings, context receipts, task/run records, outcome observations and any imported excerpts.
 Review authority stays in the local store when AJF is exported.
 
 The journal binds events to exact content digests. Store transactions verify
@@ -45,7 +48,17 @@ A context receipt records which versions and facts the CLI supplied. Use
 append to a revision without changing it. A receipt measures context supplied;
 an outcome observation records what was observed.
 
-An enforcement binding pins a verifier and covered actions to an admitted
+AJF 0.4 optionally carries behavior: context, task recognition criteria, hooks,
+verifiers, artifact coverage and failure handling. The behavior task resolver
+considers every admitted behavior-bearing judgment in the project-local store;
+known conditions filter first, then optional semantic task criteria. Missing facts
+and uncertainty pause. No top-k search controls candidate inclusion. Selected
+judgments provide context before a declared plan check. Matching action rules
+remain active independently of semantic task selection. Delivery reads actual
+files declared by the selected judgments and checks exact versions and outputs.
+Approvals and check receipts remain outside the portable JSON.
+
+An advanced legacy enforcement binding pins a verifier and covered actions to an admitted
 revision. When the installed host emits a covered action, the hook checks the
 binding and returns pass or pause. Stale, withdrawn and superseded bindings
 pause until a human resolves them. Host trust, tool coverage and check timing
@@ -61,7 +74,8 @@ Jev, called through TypeSafe, supports three opt-in checks:
 | --- | --- | --- |
 | Admission advice | The candidate, project review criteria, and optionally referenced history excerpts | Recommends approval, revision, or human judgment. Advice is scoped to the candidate and review policy versions. |
 | Conflict assessment | The proposed judgment and overlapping approved judgments | Flags a potential conflict or uncertainty for review |
-| Bound output check | The approved judgment and complete proposed new-file content | Pauses a covered write on a violation, uncertainty or provider failure |
+| Judgment-owned task/plan/delivery checks | Task criteria, task text, actual plan, selected judgments and declared file/response artifacts | Pause on uncertainty or violation; aggregate stage checks; no per-action semantic calls |
+| Legacy bound output check | The approved judgment and complete proposed new-file content | Pauses a covered write on a violation, uncertainty or provider failure |
 
 Human review controls admission and binding. A model pass on a write leaves the
 host's own permissions in effect. [Set up Jev](RUNTIME.md#set-up-jev)

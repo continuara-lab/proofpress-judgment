@@ -38,7 +38,8 @@ def parser():
     s.add_argument("--owner", help="Required for a new workspace: human:<name>")
     s.add_argument("--dry-run", action="store_true", help="Preview paths without changing files")
     s.add_argument("--format", choices=["text", "json"], default="text")
-    sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    s = sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    s.add_argument('--behavior', action='store_true', help='Include AJF-owned matching, hooks and verifiers')
     sub.add_parser("schema", help="Print the bundled AJF JSON Schema")
     s = sub.add_parser("init", help="Initialize a manual-only local workspace")
     s.add_argument("--owner", required=True, help="Self-asserted local human:<name> identity")
@@ -130,7 +131,7 @@ def parser():
     s.add_argument("--confirm", action="store_true")
     s = sub.add_parser("task-prepare", help="Resolve scope and supply context before planning")
     s.add_argument("--task", required=True)
-    s.add_argument("--workflow", required=True)
+    s.add_argument("--workflow", default='@judgments', help='Advanced legacy workflow id; default uses admitted judgments directly')
     s.add_argument("--description", required=True, help="Text file with the task request")
     s = sub.add_parser("task-plan", help="Assess a plan against the previously supplied context")
     s.add_argument("--task", required=True)
@@ -156,6 +157,13 @@ def parser():
     s.add_argument("--confirm", action="store_true")
     s = sub.add_parser("workflow-hook", help=argparse.SUPPRESS)
     s.add_argument("--workflow", required=True)
+    sub.add_parser('behavior-hook', help=argparse.SUPPRESS)
+    s = sub.add_parser('enforce', help='Connect judgment-owned checks to this project; no workflow configuration')
+    s.add_argument('action', choices=['install', 'remove'])
+    s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
+    s.add_argument('--project', default='.')
+    s.add_argument('--facts', help='Trusted project facts JSON; missing conditions pause rather than being inferred')
+    s.add_argument('--confirm', action='store_true')
     s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
     s = sub.add_parser('managed-hook', help=argparse.SUPPRESS)
     s.add_argument('--host', choices=['codex', 'claude-code'])
@@ -256,7 +264,7 @@ def run(args):
         return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
                      args.owner, args.dry_run)
     if args.command == "example":
-        return json.loads(files("judgment_layer").joinpath("skill/references/coding.json").read_text())
+        return json.loads(files("judgment_layer").joinpath('behavior-example.json' if args.behavior else "skill/references/coding.json").read_text())
     if args.command == "schema":
         return json.loads(files("judgment_layer").joinpath("ajf.schema.json").read_text())
     if args.command == "init":
@@ -265,16 +273,16 @@ def run(args):
         record = validate(load(args.file))
         return {"ok": True, "id": record["id"], "version": record["version"],
                 "boundary": "Shape and bounded consistency only; no admission or factual verification."}
-    if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook"}:
+    if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook", "behavior-hook"}:
         from .runtime import hook
         try:
             event = load("-")
         except (ValueError, OSError):
             event = None
         args._hook_event = event
-        if args.command == 'workflow-hook':
+        if args.command in {'workflow-hook', 'behavior-hook'}:
             from .lifecycle import handle
-            return handle(args.workspace, args.workflow, event)
+            return handle(args.workspace, getattr(args, 'workflow', '@judgments'), event)
         if args.command=='cursor-hook':
             from .cursor import handle
             return handle(args.workspace,event)
@@ -327,6 +335,17 @@ def run(args):
                 item["review_advice"] = advice
             return item
         with store.transaction():
+            if args.command == 'enforce':
+                from .behavior import AUTOMATIC, connect, connection
+                from . import hosts, lifecycle
+                if args.action == 'install':
+                    connected = connect(store, args.project, load(args.facts) if args.facts else connection(store)['facts'], args.confirm)
+                    result = (lifecycle.install(store, AUTOMATIC, args.confirm, args.env_file, connected['project_root'])
+                              if args.host == 'claude-code' else hosts.install(store, args.project, args.host, args.confirm, args.env_file))
+                    return {**result, 'judgment_behavior': True, 'facts': connected['facts'],
+                            'coverage': 'prompt/action/stop' if args.host == 'claude-code' else 'action; task prepare/attach and completion require explicit integration'}
+                return (lifecycle.remove(store, AUTOMATIC, args.confirm) if args.host == 'claude-code'
+                        else hosts.remove(store, args.host, args.confirm))
             if args.command == "workflow":
                 from .workflows import configure
                 return configure(store, load(args.source), args.confirm)
@@ -543,7 +562,7 @@ def main(argv=None):
             result = run(args)
             if customize_with_agent:
                 result["next"] = ["Start a new agent session in this project and say: Help me customize my Proofpress capture and review policies."]
-        if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook"}:
+        if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook", "behavior-hook"}:
             print(json.dumps(result, separators=(",", ":")))
             return 0
         if args.json:
@@ -582,7 +601,7 @@ def main(argv=None):
             from .cursor import deny
             print(json.dumps(deny('Proofpress failed; action paused')))
             return 0
-        if args.command == "workflow-hook":
+        if args.command in {"workflow-hook", "behavior-hook"}:
             from .lifecycle import failure
             event = getattr(args, '_hook_event', None)
             if event is None:

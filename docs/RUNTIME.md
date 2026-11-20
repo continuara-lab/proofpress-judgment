@@ -1,5 +1,10 @@
 # Enforce judgments
 
+> **Default: judgment-owned behavior.** Use [Behavior](BEHAVIOR.md) and
+> `proofpress enforce install`; no workflow configuration or separate binding is
+> required. The explicit bindings/workflow configuration below remains an advanced
+> compatibility interface. New lifecycle integration is protocol-tested, not live-host verified.
+
 Enforcement checks a covered tool action before it runs. Start with
 `proofpress review ID`, choose **Enforcement**, then inspect the verifier and
 protected paths. One approval admits the judgment and binds that check to the

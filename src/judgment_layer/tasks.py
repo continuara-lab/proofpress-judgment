@@ -39,7 +39,7 @@ def freshness(store, start, facts):
     reasons = []
     for receipt in data.get("receipts", [data["receipt"]]):
         reasons.extend(store.check(receipt["receipt_id"], facts)["reasons"])
-        if items(store, receipt["scope"], facts) != receipt["items"]:
+        if not data.get('behavior_task') and items(store, receipt["scope"], facts) != receipt["items"]:
             reasons.append("judgment_set_changed")
     if "prepare_id" in data:
         prepared = latest(store, data["task_id"], "task_prepared")
@@ -48,7 +48,7 @@ def freshness(store, start, facts):
         from .workflows import configuration
         policy = configuration(store, data["workflow_id"])
         if digest(policy) != data["workflow_digest"]:
-            reasons.append("workflow_changed")
+            reasons.append('judgment_behavior_or_connection_changed' if data.get('behavior_task') else 'workflow_changed')
     if data["assessment"]["choice"] != "pass":
         reasons.append("task_start_not_passed")
     return {"ok": not reasons, "reasons": reasons}
@@ -109,14 +109,20 @@ def finish_task(store, task_id, facts, outputs, evidence="", actor="agent:task")
     assessment = {"choice": "unknown", "reason": "task_context_stale"}
     if fresh["ok"]:
         data = start["data"]
-        assessment = assess(
-            {"stage": "task_finish", "plan": data["plan"], "facts": facts,
-             "judgments": records(store, data.get("items", data["receipt"]["items"])),
-             "artifacts": outputs, "evidence": evidence},
-            "Do the actual supplied artifacts satisfy every judgment and the task plan? "
-            "Evaluate the artifacts and supporting evidence. Self-reported success is not proof. "
-            "Return unknown when required context or evidence is missing.",
-            OPTIONS)
+        if data.get('behavior_task'):
+            from .behavior import assess_stage
+            assessment = assess_stage(records(store, data['items']), 'before_delivery',
+                                      {'stage': 'task_finish', 'plan': data['plan'], 'facts': facts,
+                                       'artifacts': outputs, 'evidence': evidence})
+        else:
+            assessment = assess(
+                {"stage": "task_finish", "plan": data["plan"], "facts": facts,
+                 "judgments": records(store, data.get("items", data["receipt"]["items"])),
+                 "artifacts": outputs, "evidence": evidence},
+                "Do the actual supplied artifacts satisfy every judgment and the task plan? "
+                "Evaluate the artifacts and supporting evidence. Self-reported success is not proof. "
+                "Return unknown when required context or evidence is missing.",
+                OPTIONS)
     event = store.append("task_finished", actor, data={
         "task_id": task_id, "start_id": start["event_id"],
         "artifacts_digest": digest(outputs), "evidence_digest": digest(evidence),
@@ -156,6 +162,7 @@ def check_release(store, task_id, facts, outputs):
                 and exception["data"]["start_id"] == start["event_id"]):
             reasons.remove("task_finish_not_passed")
     return {"ok": not reasons, "task_id": task_id, "reasons": reasons,
+            "delivery_coverage": (finish['data']['assessment'].get('coverage', 'assessed') if finish else 'not_checked'),
             "artifacts_digest": digest(outputs),
             "boundary": "Caller must deliver these exact artifacts; external release is not atomic."}
 

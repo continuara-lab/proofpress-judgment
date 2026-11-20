@@ -178,7 +178,8 @@ class Store:
             record.setdefault("version", 1)
             if record["version"] != 1:
                 raise JudgmentError("Capture starts at version 1; use revise")
-        record.setdefault("ajf_version", "0.3-draft")
+        record.setdefault("ajf_version", "0.4-draft" if 'behavior' in record or
+                          'task_criteria' in record.get('applicability', {}) else "0.3-draft")
         record.setdefault("links", [])
         validate(record)
         if record["provenance"]["origin"] not in self.config["capture"]["origins"]:
@@ -246,7 +247,7 @@ class Store:
                         {"authority": "manual_owner", "policy_digest": digest(self.config)})
         return self.describe(record)
 
-    def context(self, scope, facts, actor, purpose):
+    def context(self, scope, facts, actor, purpose, judgment_ids=None):
         validate_facts(facts)
         if not scope.strip() or not actor.strip() or not purpose.strip():
             raise JudgmentError("Scope, actor and purpose must be nonempty")
@@ -254,6 +255,8 @@ class Store:
         for row in self.db.execute("SELECT body FROM revisions ORDER BY id,version"):
             record = json.loads(row[0])
             if record["applicability"]["scope"] != scope:
+                continue
+            if judgment_ids is not None and record['id'] not in judgment_ids:
                 continue
             reason = self.eligible(record, scope, facts)
             if reason:

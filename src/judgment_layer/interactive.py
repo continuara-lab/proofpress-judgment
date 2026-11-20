@@ -21,6 +21,9 @@ def edit_document(record):
              'why = '+q(j['rationale'] or ''), 'scope = '+q(app['scope']),
              '# Conditions: a JSON list of {"field": "...", "equals": value}. Missing facts exclude reuse.',
              'conditions = '+q(json.dumps(app['when'], ensure_ascii=False)),
+             'task_criteria = '+q(app.get('task_criteria', '')),
+             '# Behavior JSON is part of the reviewed revision, not a separate workflow.',
+             'behavior = '+q(json.dumps(record.get('behavior'), ensure_ascii=False)),
              'limits = '+q(app['limits']), 'situation = '+q(record.get('context', {}).get('situation', '')),
              'goal = '+q(record.get('context', {}).get('goal', '')),
              'constraints = '+q(record.get('context', {}).get('constraints', [])),
@@ -34,12 +37,21 @@ def edit_document(record):
         if subprocess.run([*command, str(path)]).returncode: raise JudgmentError('Editor failed; no candidate created')
         if path.read_text() == original: return None
         fields = tomllib.loads(path.read_text())
-    required = {'name', 'statement', 'why', 'scope', 'conditions', 'limits', 'situation', 'goal', 'constraints', 'expected_outcome', 'verification'}
+    required = {'name', 'statement', 'why', 'scope', 'conditions', 'task_criteria', 'behavior', 'limits', 'situation', 'goal', 'constraints', 'expected_outcome', 'verification'}
     if set(fields) != required: raise JudgmentError('Keep the named editor fields; no candidate created')
     doc = copy.deepcopy(record)
     doc.pop('id'); doc.pop('version')
     doc['name'] = fields['name']; doc['judgment'].update(statement=fields['statement'], rationale=fields['why'] or None)
     doc['applicability'].update(scope=fields['scope'], when=json.loads(fields['conditions']), limits=fields['limits'])
+    if fields['task_criteria']:
+        doc['applicability']['task_criteria'] = fields['task_criteria']
+    else:
+        doc['applicability'].pop('task_criteria', None)
+    behavior = json.loads(fields['behavior'])
+    if behavior is not None:
+        doc['behavior'] = behavior
+    else:
+        doc.pop('behavior', None)
     if fields['situation']:
         doc['ajf_version'] = '0.3-draft'
         doc.setdefault('context', {})['situation'] = fields['situation']
@@ -52,6 +64,8 @@ def edit_document(record):
         doc['expected_outcome']={'description':fields['expected_outcome']}
         if fields['verification']:doc['expected_outcome']['verification']=fields['verification']
     else:doc.pop('expected_outcome',None)
+    if 'behavior' in doc or 'task_criteria' in doc['applicability'] or record['ajf_version'] == '0.4-draft':
+        doc['ajf_version'] = '0.4-draft'
     return doc
 
 
@@ -100,7 +114,24 @@ def review_preview(item, enforcement):
                       '  This check returns a choice and scores; no written explanation was requested.']
         lines += [color('accent', 'Approval'), '  You decide whether to approve this revision.']
     lines += [color('accent', 'Proposed enforcement')]
-    if enforcement:
+    if r.get('behavior'):
+        b = r['behavior']
+        if app.get('task_criteria'):
+            lines += ['  Task match: ' + app['task_criteria']]
+        if b.get('context'):
+            lines += ['  Context: ' + b['context']]
+        for hook in b['hooks']:
+            verifier = hook['verifier']
+            lines += ['  ' + hook['event'] + ': ' + verifier.get('criteria', verifier.get('name', ''))]
+            if hook.get('match'):
+                lines += ['    Paths: ' + ', '.join(hook['match']['paths'])]
+        if b.get('artifacts'):
+            lines += ['  Delivery files: ' + ', '.join(b['artifacts']['paths']),
+                      '  Required files: ' + ', '.join(b['artifacts']['required'])]
+        lines += ['  Violation: block and request repair. Unknown: pause for human review.',
+                  '  Approval covers this behavior and exact revision. Host connection is separate.',
+                  '  Semantic matching/review sends task, plan or declared artifacts to the configured provider.']
+    elif enforcement:
         descriptions = {'deny_generated_write': 'Block direct edits to these generated paths.', 'require_conditions': 'Check lifecycle and factual conditions only; does not judge output.', 'decision_model_output': 'Send complete new-file content and this judgment to the configured decision model; violations, uncertainty and provider errors pause writes.'}
         lines += ['  '+color('accent', 'Hook')+'   Before tool use in '+enforcement['project_root'],
                   '  '+color('accent', 'Paths')+'  '+', '.join(enforcement['paths']),
@@ -143,6 +174,9 @@ def interactive_review(workspace, jid, enforcement=None, input_fn=input):
             if revised is not None: enforcement = None  # Changed meaning needs a fresh explicit enforcement choice.
             continue
         if answer == 'h':
+            if item['record'].get('behavior'):
+                print('Checks already belong to this judgment. Choose Edit to revise its behavior JSON; no separate binding is needed.')
+                continue
             kind = input_fn('Enforcement: [N] Advice only  [G] Generated paths  [L] Lifecycle/conditions  [M] Decision model: ').strip().lower()
             if kind == 'n': enforcement = None; continue
             choices = {'g':'deny_generated_write','l':'require_conditions','m':'decision_model_output'}

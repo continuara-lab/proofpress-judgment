@@ -1,9 +1,25 @@
 # Enforce judgments
 
+> **Default: judgment-owned behavior.** Use [Behavior](BEHAVIOR.md) and
+> `proofpress enforce install`; no workflow configuration or separate binding is
+> required. The explicit bindings/workflow configuration below remains an advanced
+> compatibility interface. New lifecycle integration is protocol-tested, not live-host verified.
+
 Enforcement checks a covered tool action before it runs. Start with
 `proofpress review ID`, choose **Enforcement**, then inspect the verifier and
 protected paths. One approval admits the judgment and binds that check to the
 exact revision. [Review and recovery walkthrough](LOCAL-ALPHA.md)
+
+## Schedule checks by task boundary
+
+[Context-first enforcement](TASK-BOUNDARIES.md) adds workflow-specific scope criteria,
+Jev-assisted scope resolution, context injection before planning, gated source
+writes, output review, pause/recovery UX and exact-artifact exceptions. Claude has
+an opt-in prompt/pre-tool/Stop bridge for this advanced workflow API. The
+default judgment-owned `enforce install` also connects native Codex and Cursor
+completion automatically; see [host coverage](BEHAVIOR.md#host-coverage). `task-export` gates a concrete reviewed local bundle. Stop cannot
+retract streamed text or authorize external side effects. Existing owner-approved
+action bindings retain their behavior.
 
 ## Install a host hook
 

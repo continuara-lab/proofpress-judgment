@@ -38,7 +38,8 @@ def parser():
     s.add_argument("--owner", help="Required for a new workspace: human:<name>")
     s.add_argument("--dry-run", action="store_true", help="Preview paths without changing files")
     s.add_argument("--format", choices=["text", "json"], default="text")
-    sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    s = sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    s.add_argument('--behavior', action='store_true', help='Include AJF-owned matching, hooks and verifiers')
     sub.add_parser("schema", help="Print the bundled AJF JSON Schema")
     s = sub.add_parser("init", help="Initialize a manual-only local workspace")
     s.add_argument("--owner", required=True, help="Self-asserted local human:<name> identity")
@@ -114,8 +115,59 @@ def parser():
     s = sub.add_parser("bind", help="Human-only: bind an admitted judgment to a runtime verifier")
     s.add_argument("--from", dest="source", required=True)
     s.add_argument("--confirm", action="store_true")
+    for action in ("start", "finish", "check"):
+        s = sub.add_parser("task-" + action, help="Explicit workflow task " + action + " checkpoint")
+        s.add_argument("--task", required=True, help="Workflow-owned task id, not an inferred host session")
+        s.add_argument("--facts", required=True)
+        if action == "start":
+            s.add_argument("--scope", required=True)
+            s.add_argument("--plan", required=True, help="Text file containing the task plan")
+        else:
+            s.add_argument("--artifacts", required=True, help="JSON object of artifact names to complete text")
+        if action == "finish":
+            s.add_argument("--evidence", help="Text file with supporting review context or test evidence")
+    s = sub.add_parser("workflow", help="Preview or configure owner-reviewed scope criteria and gates")
+    s.add_argument("--from", dest="source", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("task-prepare", help="Resolve scope and supply context before planning")
+    s.add_argument("--task", required=True)
+    s.add_argument("--workflow", default='@judgments', help='Advanced legacy workflow id; default uses admitted judgments directly')
+    s.add_argument("--description", required=True, help="Text file with the task request")
+    s = sub.add_parser("task-plan", help="Assess a plan against the previously supplied context")
+    s.add_argument("--task", required=True)
+    s.add_argument("--context", required=True)
+    s.add_argument("--plan", required=True)
+    s = sub.add_parser("task-attach", help="Attach a prepared task to an explicit host session")
+    s.add_argument("--task", required=True)
+    s.add_argument("--host", choices=["codex", "claude-code", "cursor"], required=True)
+    s.add_argument("--session", required=True)
+    for name in ("task-status", "task-finish-files", "task-export"):
+        s = sub.add_parser(name, help="Inspect, review or export a workflow's configured artifacts")
+        s.add_argument("--task", required=True)
+        if name == "task-finish-files":
+            s.add_argument("--evidence", help="Text file containing additional review evidence")
+    s = sub.add_parser("task-exception", help="Human-only exact-artifact exception; never changes judgments")
+    s.add_argument("--task", required=True)
+    s.add_argument("--artifacts", required=True)
+    s.add_argument("--reason", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("workflow-hooks", help="Install/remove Claude context and Stop lifecycle hooks")
+    s.add_argument("action", choices=["install", "remove"])
+    s.add_argument("--workflow", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("workflow-hook", help=argparse.SUPPRESS)
+    s.add_argument("--workflow", required=True)
+    s = sub.add_parser('behavior-hook', help=argparse.SUPPRESS)
+    s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
+    s = sub.add_parser('enforce', help='Connect judgment-owned checks to this project; no workflow configuration')
+    s.add_argument('action', choices=['install', 'remove'])
+    s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
+    s.add_argument('--project', default='.')
+    s.add_argument('--facts', help='Trusted project facts JSON; missing conditions pause rather than being inferred')
+    s.add_argument('--confirm', action='store_true')
     s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
-    sub.add_parser('managed-hook', help=argparse.SUPPRESS)
+    s = sub.add_parser('managed-hook', help=argparse.SUPPRESS)
+    s.add_argument('--host', choices=['codex', 'claude-code'])
     sub.add_parser('cursor-hook', help=argparse.SUPPRESS)
     s = sub.add_parser("onboard", help="Preview or enable project-local capture policy and agent skills")
     s.add_argument('--startup', action='store_true', help='Configure startup guidance for Codex, Claude Code and Cursor')
@@ -213,7 +265,7 @@ def run(args):
         return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
                      args.owner, args.dry_run)
     if args.command == "example":
-        return json.loads(files("judgment_layer").joinpath("skill/references/coding.json").read_text())
+        return json.loads(files("judgment_layer").joinpath('behavior-example.json' if args.behavior else "skill/references/coding.json").read_text())
     if args.command == "schema":
         return json.loads(files("judgment_layer").joinpath("ajf.schema.json").read_text())
     if args.command == "init":
@@ -222,15 +274,24 @@ def run(args):
         record = validate(load(args.file))
         return {"ok": True, "id": record["id"], "version": record["version"],
                 "boundary": "Shape and bounded consistency only; no admission or factual verification."}
-    if args.command in {"hook", "managed-hook", "cursor-hook"}:
+    if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook", "behavior-hook"}:
         from .runtime import hook
         try:
             event = load("-")
         except (ValueError, OSError):
             event = None
+        args._hook_event = event
+        if args.command in {'workflow-hook', 'behavior-hook'}:
+            if getattr(args, 'host', None) == 'cursor':
+                from .cursor import lifecycle_handle
+                return lifecycle_handle(args.workspace, event)
+            from .lifecycle import handle
+            return handle(args.workspace, getattr(args, 'workflow', '@judgments'), event, getattr(args, 'host', 'claude-code'))
         if args.command=='cursor-hook':
             from .cursor import handle
             return handle(args.workspace,event)
+        if isinstance(event, dict) and getattr(args, 'host', None):
+            event = {**event, 'host': args.host}
         return hook(args.workspace, event, managed=args.command=='managed-hook')
     store = Store(args.workspace)
     try:
@@ -278,6 +339,52 @@ def run(args):
                 item["review_advice"] = advice
             return item
         with store.transaction():
+            if args.command == 'enforce':
+                from .behavior import AUTOMATIC, connect, connection
+                from . import hosts, lifecycle
+                if args.action == 'install':
+                    connected = connect(store, args.project, load(args.facts) if args.facts else connection(store)['facts'], args.confirm)
+                    result = lifecycle.install(store, AUTOMATIC, args.confirm, args.env_file, connected['project_root'], args.host)
+                    return {**result, 'judgment_behavior': True, 'facts': connected['facts'],
+                            'coverage': 'prompt/action/stop' if args.host != 'cursor' else 'prompt preparation/action checks/automatic post-response review and bounded follow-up'}
+                return lifecycle.remove(store, AUTOMATIC, args.confirm, args.host)
+            if args.command == "workflow":
+                from .workflows import configure
+                return configure(store, load(args.source), args.confirm)
+            if args.command == "workflow-hooks":
+                from .lifecycle import install, remove
+                return install(store, args.workflow, args.confirm, args.env_file) if args.action == "install" else remove(store, args.workflow, args.confirm)
+            if args.command == "task-prepare":
+                from .workflows import prepare
+                return prepare(store, args.task, args.workflow, Path(args.description).read_text())
+            if args.command == "task-plan":
+                from .workflows import plan
+                return plan(store, args.task, args.context, Path(args.plan).read_text())
+            if args.command == "task-attach":
+                from .workflows import attach
+                return attach(store, args.task, args.host, args.session)
+            if args.command == "task-status":
+                from .workflows import status
+                return status(store, args.task)
+            if args.command == "task-finish-files":
+                from .workflows import finish_files
+                return finish_files(store, args.task, evidence=Path(args.evidence).read_text() if args.evidence else '')[0]
+            if args.command == "task-export":
+                from .workflows import export
+                return export(store, args.task)
+            if args.command == "task-exception":
+                from .workflows import exception
+                return exception(store, args.task, load(args.artifacts), args.reason, args.confirm)
+            if args.command in {"task-start", "task-finish", "task-check"}:
+                from .tasks import start_task, finish_task, check_release
+                facts = load(args.facts)
+                if args.command == "task-start":
+                    return start_task(store, args.task, args.scope, facts, Path(args.plan).read_text())
+                outputs = load(args.artifacts)
+                if args.command == "task-finish":
+                    evidence = Path(args.evidence).read_text() if args.evidence else ""
+                    return finish_task(store, args.task, facts, outputs, evidence)
+                return check_release(store, args.task, facts, outputs)
             if args.command == 'doctor':
                 from .hosts import doctor
                 return doctor(store,args.project)
@@ -457,7 +564,7 @@ def main(argv=None):
             result = run(args)
             if customize_with_agent:
                 result["next"] = ["Start a new agent session in this project and say: Help me customize my Proofpress capture and review policies."]
-        if args.command in {"hook", "managed-hook", "cursor-hook"}:
+        if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook", "behavior-hook"}:
             print(json.dumps(result, separators=(",", ":")))
             return 0
         if args.json:
@@ -490,11 +597,26 @@ def main(argv=None):
             print(render_text(args.command, result))
         else:
             print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
-        return 3 if args.command in {"check", "assess"} and not result["ok"] else 0
+        return 3 if args.command in {"check", "assess", "task-start", "task-finish", "task-check", "task-prepare", "task-plan", "task-finish-files", "task-export"} and not result["ok"] else 0
     except (JudgmentError, OSError, ValueError, sqlite3.Error, KeyError, TypeError, EOFError, KeyboardInterrupt) as exc:
         if args.command=='cursor-hook':
             from .cursor import deny
             print(json.dumps(deny('Proofpress failed; action paused')))
+            return 0
+        if args.command in {"workflow-hook", "behavior-hook"}:
+            from .lifecycle import failure
+            event = getattr(args, '_hook_event', None)
+            if event is None:
+                try:
+                    event = load('-')
+                except (ValueError, OSError):
+                    event = None
+            if getattr(args, 'host', None) == 'cursor':
+                from .cursor import lifecycle_failure
+                result = lifecycle_failure(event, 'Provider configuration or lifecycle check unavailable')
+            else:
+                result = failure(event, 'Provider configuration or lifecycle check unavailable')
+            print(json.dumps(result))
             return 0
         if args.command in {"hook", "managed-hook"}:
             print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Proofpress failed; action paused"}}))

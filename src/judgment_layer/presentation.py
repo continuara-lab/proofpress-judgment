@@ -28,6 +28,8 @@ def applicability(app):
     lines = ["Scope  " + app["scope"]]
     lines += ["When   " + c["field"] + " = " + scalar(c["equals"]) for c in app["when"]]
     lines += ["Limit  " + x for x in app["limits"]]
+    if app.get('task_criteria'):
+        lines.append('Task match  ' + app['task_criteria'])
     lines += [key.replace("_", " ").title() + "  " + app[key] for key in ("valid_from", "valid_until") if key in app]
     return lines
 
@@ -78,6 +80,8 @@ def record_lines(item, detailed=False, identity=True):
         if r["judgment"].get("polarity"): lines.append("Polarity  " + r["judgment"]["polarity"])
         lines += ["Kind   " + r["judgment"]["kind"], "Why    " + (r["judgment"]["rationale"] or "Not recorded")]
         lines += applicability(r["applicability"])
+        if r.get('behavior'):
+            lines += ['Behavior  ' + json.dumps(r['behavior'], ensure_ascii=False, indent=2)]
         p = r["provenance"]
         lines += ["Origin " + p["origin"], "By     " + p.get("judged_by", p.get("decision_maker", "Not recorded")),
                   "Recorded  " + p["recorded_by"] + " · " + p["recorded_at"] + " · " + p["capture_method"]]
@@ -105,7 +109,7 @@ def agent_projection(command, result):
                 "judgments":[{**{k:x[k] for k in ("id","version","name")},
                               "judgment":x["record"]["judgment"],
                               "applicability":x["record"]["applicability"],
-                              **{k:x["record"][k] for k in ("context","alternatives","expected_outcome") if k in x["record"]}} for x in result["judgments"]],
+                              **{k:x["record"][k] for k in ("context","alternatives","expected_outcome","behavior") if k in x["record"]}} for x in result["judgments"]],
                 "boundary":result["boundary"], "holds":result.get("holds",[])}
     if isinstance(result, dict) and "record" in result:
         return {**{k:result[k] for k in ("id","version","name","state","digest")}, "flags":result.get("flags",[])}
@@ -116,16 +120,24 @@ def agent_projection(command, result):
 
 def render_text(command, result):
     if 'review_result' in result: return result['review_result']
+    if command == 'enforce':
+        return '\n'.join(['Judgment-owned enforcement · ' + ('connected' if result.get('confirmed') else 'preview'),
+                          'Config  ' + result.get('path', ''),
+                          'Coverage  ' + result.get('coverage', 'Managed host registration removed.'),
+                          result.get('boundary', result.get('trust', '')),
+                          'No workflow or per-judgment binding configuration is required.'])
     if result.get('host_setup'):
         action = 'Removed' if result.get('removed') else 'Installed'
         return '\n'.join([color('accent','Proofpress · Hooks'), color('accent','Host')+'  '+result['host'], color('accent','Config')+'  '+result['path'], (action if result['confirmed'] else 'Preview only; repeat with --confirm to change host configuration.'), result['trust'], *(['Command  '+result['command']] if not result['confirmed'] and 'command' in result else [])])
     if result.get('doctor'):
-        lines=[color('accent','Proofpress · Doctor'), color('accent','Project')+'  '+result['project'], color('accent','Store')+'  '+result['workspace'], color('accent','Skills')+'  '+(', '.join(result['skills']) or 'None; run proofpress onboard'), color('accent','Enforcement')+'  '+('Paused by owner' if result['paused'] else 'Enabled for configured bindings')]
+        lines=[color('accent','Proofpress · Doctor'), color('accent','Project')+'  '+result['project'], color('accent','Store')+'  '+result['workspace'], color('accent','Skills')+'  '+(', '.join(result['skills']) or 'None; run proofpress onboard'), color('accent','Enforcement')+'  '+('Paused by owner' if result['paused'] else 'Configured judgment checks and legacy bindings; inspect host status below')]
         for host in result['hosts']:
             lines += ['Hook  '+host['host']+' · '+('configured' if host['configured'] else 'missing or changed; reinstall'), 'Trust  '+host['trust']]
         if not result['hosts']: lines += ['Hook  Not installed; preview with proofpress hooks install']
         for b in result['bindings']: lines += ['Binding  '+b['name']+' v'+str(b['version'])+' · '+b['state']+' · '+', '.join(b['paths'])]
-        if not result['bindings']: lines += ['Bindings  None; review a judgment and choose enforcement.']
+        for b in result.get('behaviors', []):
+            lines += ['Judgment checks  ' + b['name'] + ' v' + str(b['version']) + ' · ' + ', '.join(b['events'])]
+        if not result['bindings'] and not result.get('behaviors'): lines += ['Checks  None; propose and review a judgment with behavior.']
         last=result['last_check']
         lines += ['Observed  '+(last['at']+' · '+('passed' if last['ok'] else 'blocked')+' · '+last['reason'] if last else 'No runtime check recorded; host execution is not verified.')]
         return '\n'.join(lines)
@@ -247,6 +259,43 @@ def render_text(command, result):
         return "Review assistance · "+result['assessment']['choice']+" · "+str(len(result['flags']))+" flags · manual admission required"
     if command == "assess":
         return "No conflict flagged · candidate still needs review" if result["ok"] else "Paused · conflicting or uncertain judgment; inspect --json"
+    if command == "task-status":
+        labels = {"planning": "Planning", "context_paused": "Context needs clarification",
+                  "plan_paused": "Plan needs review", "executing": "Work in progress",
+                  "delivery_paused": "Delivery paused", "ready": "Reviewed revision ready"}
+        lines = [labels[result["state"]] + " · " + result["task_id"]]
+        if result["paused_boundary"]:
+            lines.append("Paused boundary  " + result["paused_boundary"])
+        if result["assessment"]:
+            lines.append('Assessment  No delivery check requested' if result.get('delivery_coverage') == 'not_requested' else "Assessment  " + {"pass": "Passed model review", "violation": "Model flagged a violation",
+                                         "unknown": "Insufficient certainty; needs review"}[result["assessment"]])
+        lines += ["Reason  " + reason for reason in result["reasons"]]
+        lines += ["Judgment  " + j["name"] + " v" + str(j["version"]) + " · " + j["judgment"]["statement"]
+                  for j in result["judgments"]]
+        lines += ["Reviewed artifact  " + name for name in result["artifacts"]]
+        if result.get("review_path"):
+            lines.append("Inspect review bundle  " + result["review_path"] + " (not delivery approval)")
+        lines += ["Next  " + action for action in result["next"]]
+        lines.append("Reading remains available. Repair writes remain available after a passing plan.")
+        return "\n".join(lines)
+    if command == "task-prepare":
+        lines = [("Context ready" if result["ok"] else "Context paused") + " · " + result["task_id"],
+                 "Context ID  " + result["context_id"], "Plan draft  " + result["plan_path"]]
+        lines += ["Reason  " + reason for reason in result["reasons"]]
+        lines += ["Judgment  " + j["name"] + " v" + str(j["version"]) + " · " + j["record"]["judgment"]["statement"]
+                  for j in result["judgments"]]
+        lines += ['Context  ' + value for value in result.get('context', [])]
+        lines.append('Plan check  ' + ('Not requested' if result.get('requires_plan') is False else 'Required'))
+        lines.append("Next  " + result["next"])
+        return "\n".join(lines)
+    if command in {"task-start", "task-finish", "task-check", "task-plan", "task-finish-files", "task-export"}:
+        outcome = "Passed" if result["ok"] else "Paused"
+        details = result.get("reasons", [])
+        if "assessment" in result:
+            details = [('No check requested' if result['assessment'].get('coverage') == 'not_requested' else result["assessment"]["choice"]), *details]
+        elif result.get('delivery_coverage') == 'not_requested':
+            details = ['No delivery check requested', *details]
+        return outcome + " · " + result["task_id"] + (" · " + "; ".join(details) if details else "") + ("\nExported  " + result["path"] if result.get("path") else "")
     if command == "bind":
         return "Runtime binding saved · install the host hook separately"
     if command == "check":

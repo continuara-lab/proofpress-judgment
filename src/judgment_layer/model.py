@@ -70,6 +70,9 @@ def validate(record):
     for link in record["links"]:
         if link["relation"] == "depends_on" and link["id"] == record["id"]:
             raise JudgmentError("A judgment cannot depend on itself")
+    if 'behavior' in record:
+        from .behavior import validate_behavior
+        validate_behavior(record)
     return record
 
 

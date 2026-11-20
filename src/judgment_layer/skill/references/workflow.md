@@ -52,3 +52,28 @@ withdraw incorrect guidance promptly. Never silently broaden or auto-admit it.
 Default output is concise text, also in pipes. Use `--format agent` for small
 JSON results, `show ID` for review, and `--json` only when full records are needed.
 Do not repeatedly load the schema or history during reuse.
+
+## Context-first enforcement workflow
+
+When an owner has configured a workflow, get `task-prepare` context before writing
+a plan. Submit that plan using the exact context id with `task-plan`. Attach the
+actual host session with `task-attach` when using the explicit Codex/Cursor bridge.
+Claude lifecycle hooks can supply task context and session attachment automatically.
+
+`task-status` identifies whether context, source execution or delivery is paused.
+A failed output check leaves repair writes available when the plan is still valid.
+Recheck with `task-finish-files`; `task-export` gates the actual local file bundle.
+Never invoke owner workflow changes or confirm an artifact exception on the user's
+behalf. CLI/skill guidance alone is not interception; inspect installed hooks and
+read the workflow coverage in docs/TASK-BOUNDARIES.md before claiming enforcement.
+
+## Optional behavior in the same judgment
+
+Inspect `proofpress example --behavior` for AJF 0.4. Put semantic task criteria in
+`applicability.task_criteria`. Put context, event/verifier declarations, artifact
+paths/required files and supported failure handling in `behavior`. Propose only
+checks grounded in the actual correction; do not add blocking constraints to
+every lesson. New hooks or changed criteria require a new candidate revision and
+human review. `expected_outcome.verification` remains descriptive prose; it does
+not activate a verifier. No separate workflow or binding is needed. Custom-code
+verifiers are not supported. The host connection is a separate human action.

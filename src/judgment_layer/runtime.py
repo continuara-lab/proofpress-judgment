@@ -74,7 +74,7 @@ def bind(store, policy, confirmed):
     r=store.record(policy['judgment_id'],policy['version'])
     if store.state(r)!='admitted' or digest(r)!=policy['digest'] or policy['scope']!=r['applicability']['scope']:
         raise JudgmentError('Binding requires an admitted exact revision in this scope')
-    if policy['verifier'] not in {'deny_generated_write','require_conditions','decision_model_output','semantic_output'}:
+    if policy['verifier'] not in {'deny_generated_write','require_conditions','decision_model_output','semantic_output','task_boundary'}:
         raise JudgmentError('Unsupported verifier')
     root=Path(policy['project_root'])
     if not root.is_absolute() or not root.is_dir() or str(root.resolve())!=str(root):
@@ -90,11 +90,26 @@ def bind(store, policy, confirmed):
 def gate(store, event):
     from .hosts import bindings
     policies=bindings(store)
-    if not policies:
-        return {'ok':False,'reason':'No runtime binding configured'}
     if not isinstance(event,dict) or not isinstance(event.get('tool_name'),str) or not isinstance(event.get('tool_input'),dict):
         return {'ok':False,'reason':'Malformed tool event'}
+    from .workflows import action
+    workflow_result = action(store, event)
+    if workflow_result is not None and not workflow_result['ok']:
+        return workflow_result
     tool=event['tool_name']
+    if workflow_result is not None and (tool == 'Bash' or workflow_result.get('control')):
+        return workflow_result
+    from .behavior import action as behavior_action, inventory
+    behavior_records = inventory(store)
+    if behavior_records and workflow_result is None and tool not in {'Read', 'Glob', 'Grep', 'apply_patch'}:
+        if any(h['event'] in {'before_execution', 'before_delivery'}
+               for r in behavior_records for h in r['behavior']['hooks']):
+            return {'ok': False, 'reason': 'Prepare and attach this task before execution so judgment requirements can be resolved'}
+    behavior_result = behavior_action(store, event)
+    if behavior_result is not None and not behavior_result['ok']:
+        return behavior_result
+    if not policies and not behavior_records and tool != 'apply_patch':
+        return workflow_result or {'ok':False,'reason':'No runtime binding configured'}
     if tool == 'apply_patch':
         command = event['tool_input'].get('command')
         if not isinstance(command, str) or not command.startswith('*** Begin Patch\n') or not command.rstrip().endswith('*** End Patch'):
@@ -156,6 +171,11 @@ def gate(store, event):
             return {'ok':False,'reason':f"{r['name']} v{r['version']}: binding withdrawn or superseded. Review the latest revision and enforcement, or explicitly unbind."}
         if holds(store,policy['scope']):
             return {'ok':False,'reason':f"{r['name']} v{r['version']}: judgment conflict or uncertainty. Review pending judgments before continuing."}
+        if policy['verifier']=='task_boundary':
+            from .tasks import action_check
+            result=action_check(store,event,policy)
+            if not result['ok']:return result
+            continue
         # Runtime-derived facts only. Unknown condition fields cannot be invented by a model.
         facts={'generated_file':True} if policy['verifier']=='deny_generated_write' else {}
         reason=store.eligible(r,policy['scope'],facts)
@@ -177,13 +197,22 @@ def gate(store, event):
 
 
 def hook(workspace, event, managed=False):
+    if (managed and isinstance(event,dict) and isinstance(event.get('tool_name'),str)
+            and event['tool_name'] in {'Read','Glob','Grep'}
+            and isinstance(event.get('tool_input'),dict)):
+        return {}  # No store, ledger scan or provider call for known read-only events.
     from .store import Store
     store=None
     try:
         store=Store(workspace)
         with store.transaction():
             from .hosts import paused, bindings
-            if managed and (paused(store) or not bindings(store)):
+            from .workflows import attached
+            task_id = attached(store, event) if isinstance(event,dict) else None
+            if task_id:
+                event = {**event, 'proofpress_task_id': task_id}
+            from .behavior import inventory
+            if managed and (paused(store) or (not bindings(store) and not task_id and not inventory(store))):
                 result={'ok':True,'reason':'Enforcement paused by owner' if paused(store) else 'No protected actions configured'}
             else:
                 result=gate(store,event)

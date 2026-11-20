@@ -117,14 +117,44 @@ and no semantic-verification claim should be made for those boundaries.
 
 | Host | Context and plan | Action checks | Completion |
 | --- | --- | --- | --- |
-| Claude Code | Prompt bridge supplies context and requires a plan only when declared | Native PreToolUse; normalized file tools and patch targets | Stop reviews declared files and actual final response |
-| Codex | Explicit task preparation and session attachment | Managed PreToolUse, including patch source/destination targets | Explicit finish/export integration |
-| Cursor | Explicit task preparation and conversation attachment | Managed preToolUse; normalized edit/write routes | Explicit finish/export integration |
+| Claude Code | Prompt bridge supplies context; only declared plan checks run | Native PreToolUse; file tools and patch targets | Stop reviews declared files and actual final response; repair or pause |
+| Codex | Native UserPromptSubmit prepares/attaches automatically and supplies context | Native PreToolUse, including patch targets | Native Stop reviews actual files/response; one repair continuation retains the same task |
+| Cursor | beforeSubmitPrompt prepares/attaches automatically; first preToolUse is denied once with the context packet before tools execute | Native preToolUse with normalized edit/write routes | afterAgentResponse captures actual text; stop automatically reviews files/text and can request one follow-up |
 
-Claude registration requires host trust and the documented hook version noted in
-the installer. The new lifecycle path has protocol/subprocess regression tests;
-live-host lifecycle verification is still pending. Earlier action-hook receipts
-do not establish live behavior for this new path.
+Install with `proofpress enforce install --host HOST --confirm`. The installer
+preserves user hooks and upgrades an unchanged managed action-only entry without
+leaving duplicate registrations. `doctor` lists each lifecycle connection;
+`enforce remove --host HOST --confirm` and `uninstall` remove only owned entries.
+New/changed hooks still require the host's trust flow.
+
+Codex Stop continuation is a new prompt. A task-bound resume marker keeps the
+original judgment/context/check state across that prompt. Host turn ids prevent
+a delayed response from approving another turn. Cursor uses conversation plus
+generation ids: response text from an earlier generation cannot satisfy the
+current completion check. Unknown, missing/corrupt response, aborted/error status
+or repeated failure leaves delivery unapproved. A handoff response is not treated
+as new compliance evidence and does not trigger another semantic review loop.
+
+**Cursor completion is post-response review, not a pre-display veto.** Its public
+stop contract supports a follow-up message, not blocking or retracting rendered
+text. The adapter does not invent a deny field for stop. One bounded repair or
+human-handoff follow-up is available; exact-artifact export remains a separate
+hard check. Cursor cannot inject per-task context from beforeSubmitPrompt, so
+context is supplied before the first tool rather than before the first model
+reasoning step. A task that uses no tools is still automatically checked on stop.
+
+The new adapters have protocol/subprocess tests. The
+[validation record](verification/native-completion-protocol-2026-11-20.json) notes
+that Codex 0.169.0 could not initialize in this environment (read-only filesystem)
+and no Cursor client was available. Host-specific live verification remains pending; a protocol fixture is not a real-client receipt or an
+assessment-quality result. Claude registration requires its documented hook
+version. Cursor CLI/editor hook availability depends on the installed host; if
+the necessary events do not fire, no completed review should be inferred.
+
+Wire references checked for this implementation:
+[Codex hooks](https://learn.chatgpt.com/docs/hooks) and
+[Cursor hooks](https://cursor.com/docs/hooks). Neither surface can retract
+already streamed text or gate an earlier external side effect.
 
 Unknown shell/MCP routes pause conservatively. The only shell exception is the
 narrow task-plan/status/finish control channel for the same task/workspace.
@@ -136,30 +166,27 @@ cooperative, not an OS security boundary.
 
 ## Codex and Cursor
 
-Install the action connection once, choosing the actual host:
+Connect the actual host once, then start a new session and review/trust the hooks:
 
 ```sh
 proofpress enforce install --host codex --confirm
-proofpress task-prepare --task TASK --description request.txt --json
+# Or, in a Cursor project:
+proofpress enforce install --host cursor --confirm
+proofpress doctor
 ```
 
-Read the returned judgments/context. If `requires_plan` is true, write the
-concrete plan to the returned `plan_path`, then use the returned `context_id`:
+The native prompt/action/completion events prepare and attach the task and review
+completion automatically. No workflow configuration, manual session id or
+mandatory `task-finish-files` call is needed in this path. A declared plan still
+requires the agent to submit the concrete plan through the supplied command;
+covered source execution stays paused until that plan passes.
 
-```sh
-proofpress task-plan --task TASK --context CONTEXT_ID --plan PLAN_PATH
-proofpress task-attach --task TASK --host codex --session ACTUAL_SESSION_ID
-# Perform work; the attached session's covered writes honor the plan result.
-proofpress task-finish-files --task TASK
-proofpress task-export --task TASK
-```
-
-Use `--host cursor` and the actual Cursor conversation id for Cursor. No
-`--workflow` argument is needed. Task IDs/session IDs must not be invented or
-borrowed to evade checks. Unattached sessions with stage requirements pause
-execution; installing the action adapter alone does not supply context or gate
-completion automatically. `task-export` creates an exact reviewed local file
-bundle, not an external deployment.
+Explicit `task-prepare`, `task-attach`, `task-finish-files` and `task-export` remain
+available for custom callers or exact reviewed local file bundles. These commands
+are an integration API, not prerequisites for ordinary native completion.
+`task-export` writes a local reviewed bundle, not an external deployment. Native
+completion checks cover files plus response; a separate file-only export uses a
+file-only review of that exact bundle.
 
 ## Pauses, repair and review
 

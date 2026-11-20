@@ -15,8 +15,9 @@ exact revision. [Review and recovery walkthrough](LOCAL-ALPHA.md)
 [Context-first enforcement](TASK-BOUNDARIES.md) adds workflow-specific scope criteria,
 Jev-assisted scope resolution, context injection before planning, gated source
 writes, output review, pause/recovery UX and exact-artifact exceptions. Claude has
-an opt-in prompt/pre-tool/Stop bridge; Codex/Cursor use explicit task/session
-attachment. `task-export` gates a concrete reviewed local bundle. Stop cannot
+an opt-in prompt/pre-tool/Stop bridge for this advanced workflow API. The
+default judgment-owned `enforce install` also connects native Codex and Cursor
+completion automatically; see [host coverage](BEHAVIOR.md#host-coverage). `task-export` gates a concrete reviewed local bundle. Stop cannot
 retract streamed text or authorize external side effects. Existing owner-approved
 action bindings retain their behavior.
 

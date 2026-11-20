@@ -107,16 +107,19 @@ def doctor(store, project):
         except (OSError, ValueError, AttributeError): present = False
         checks.append({'host': host, 'configured': present, 'path': str(path), 'trust': 'Check in host; Proofpress does not grant or infer trust.'})
     from .lifecycle import manifest_path
-    lifecycle = manifest_path(store)
-    if lifecycle.exists():
-        m = json.loads(lifecycle.read_text()); path = Path(m['path'])
-        try:
-            configured = json.loads(path.read_text()).get('hooks', {})
-            present = all(entry in configured.get(event, []) for event, entry in m['entries'].items())
-        except (OSError, ValueError, AttributeError):
-            present = False
-        checks.append({'host': 'claude-code lifecycle', 'configured': present, 'path': str(path),
-                       'trust': 'Requires host trust and Claude >=2.1.295; no live-host verification implied.'})
+    for host in ('claude-code', 'codex', 'cursor'):
+        lifecycle = manifest_path(store, host)
+        if lifecycle.exists():
+            m = json.loads(lifecycle.read_text()); path = Path(m['path'])
+            try:
+                configured = json.loads(path.read_text()).get('hooks', {})
+                present = all(entry in configured.get(event, []) for event, entry in m['entries'].items())
+            except (OSError, ValueError, AttributeError):
+                present = False
+            checks.append({'host': host + ' lifecycle', 'configured': present, 'path': str(path),
+                           'trust': ('Requires host trust and Claude >=2.1.295; no live-host verification implied.' if host == 'claude-code'
+                                     else 'Review and trust the exact hooks in the host; installation does not prove execution.'),
+                           'completion': 'post-response review with bounded follow-up; no display veto' if host == 'cursor' else 'native Stop review'})
     rules = []
     for b in bindings(store):
         r = store.record(b['judgment_id'], b['version'])
@@ -154,22 +157,23 @@ def uninstall(store, project, confirmed=False):
         if not Path(m['path']).is_relative_to(root): raise JudgmentError('Hook belongs to another project')
         remove(store,host,False)  # Preflight before changing any files.
     from .lifecycle import manifest_path, remove as remove_lifecycle
-    lifecycle = json.loads(manifest_path(store).read_text()) if manifest_path(store).exists() else None
-    if lifecycle:
+    lifecycles = [(host, json.loads(manifest_path(store, host).read_text()))
+                  for host in ('claude-code', 'codex', 'cursor') if manifest_path(store, host).exists()]
+    for host, lifecycle in lifecycles:
         if not Path(lifecycle['path']).is_relative_to(root):
             raise JudgmentError('Lifecycle hook belongs to another project')
-        remove_lifecycle(store, lifecycle['workflow_id'], False)
+        remove_lifecycle(store, lifecycle['workflow_id'], False, host)
     startup_changes, edited_startup = plan_removal(store.root, root)
     if confirmed:
         apply_changes(startup_changes)
         if (store.root / "startup.json").exists():
             atomic_json(store.root / "startup.json", edited_startup)
         for host in hosts: remove(store,host,True)
-        if lifecycle: remove_lifecycle(store, lifecycle['workflow_id'], True)
+        for host, lifecycle in lifecycles: remove_lifecycle(store, lifecycle['workflow_id'], True, host)
         for name in removed: Path(name).unlink()
         if manifest.exists(): atomic_json(manifest,{k:v for k,v in files.items() if k not in removed})
     preserved.extend(edited_startup)
-    preview = f"Preview: {len(removed)} skill files, {len(startup_changes)} startup files and {len(hosts) + bool(lifecycle)} hook registrations. Repeat with --confirm."
+    preview = f"Preview: {len(removed)} skill files, {len(startup_changes)} startup files and {len(hosts) + len(lifecycles)} hook registrations. Repeat with --confirm."
     result = 'Removed integration. Restart your agent. Judgment store preserved.' if confirmed else preview
     if preserved:
         result += ' Edited files preserved: ' + ', '.join(preserved)

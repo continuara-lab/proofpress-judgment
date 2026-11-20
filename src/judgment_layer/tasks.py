@@ -155,6 +155,12 @@ def check_release(store, task_id, facts, outputs):
         action = latest(store, task_id, "task_action")
         if action and action["seq"] > finish["seq"]:
             reasons.append("action_after_finish")
+        turn = latest(store, task_id, 'task_host_turn')
+        if turn and turn['seq'] > finish['seq']:
+            reasons.append('completion_turn_changed')
+        paused = latest(store, task_id, 'task_host_paused')
+        if paused and paused['seq'] > finish['seq']:
+            reasons.append('completion_paused:' + paused['data']['reason'])
     if finish and "workflow_id" in start["data"] and "task_finish_not_passed" in reasons:
         exception = latest(store, task_id, "task_exception")
         if (exception and exception["data"]["finish_id"] == finish["event_id"]

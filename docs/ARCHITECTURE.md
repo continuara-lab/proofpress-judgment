@@ -88,3 +88,13 @@ hosts can load the skill through their entry points. Hook installation and
 history import are separate steps.
 
 [Supported agents](AGENTS.md) · [CLI commands](CLI.md)
+
+## Automatic completion connections
+
+`enforce install` registers native lifecycle events for Claude Code, Codex and
+Cursor, with separate host manifests and output contracts. Codex supplies actual
+final text on Stop. Cursor captures actual text on afterAgentResponse, correlates
+it by conversation/generation and checks it on stop. Missing or stale responses
+remain unknown. Codex continuation prompts retain the same task; Cursor stop
+uses only its supported bounded follow-up mechanism and cannot veto displayed
+text. See [host coverage](BEHAVIOR.md#host-coverage) for boundaries and references.

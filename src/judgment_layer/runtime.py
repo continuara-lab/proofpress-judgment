@@ -101,7 +101,7 @@ def gate(store, event):
         return workflow_result
     from .behavior import action as behavior_action, inventory
     behavior_records = inventory(store)
-    if behavior_records and workflow_result is None and tool not in {'Read', 'Glob', 'Grep'}:
+    if behavior_records and workflow_result is None and tool not in {'Read', 'Glob', 'Grep', 'apply_patch'}:
         if any(h['event'] in {'before_execution', 'before_delivery'}
                for r in behavior_records for h in r['behavior']['hooks']):
             return {'ok': False, 'reason': 'Prepare and attach this task before execution so judgment requirements can be resolved'}

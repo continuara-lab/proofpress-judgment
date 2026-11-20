@@ -112,10 +112,12 @@ coding --confirm` removes only them; uninstall also removes the managed entries.
 
 ## Explicit Codex/Cursor and workflow API
 
-Their existing pre-tool adapters can use the same workflow state through explicit
-session attachment. Native task-start/completion interception is not implemented
-for these hosts. Refresh existing installed hooks to obtain the explicit host
-identity added to the managed registration in this PR.
+This section describes the advanced explicit workflow API. The default
+judgment-owned `enforce install --host codex` or `--host cursor` now registers
+automatic prompt/action/completion handling, without the commands below. Cursor
+completion is post-response review with a bounded follow-up, not a display veto.
+See [native host coverage](BEHAVIOR.md#host-coverage). For application-owned
+workflows, existing adapters can still use explicit session attachment:
 
 ```sh
 proofpress --env-file .judgment/jev.env task-prepare --task TASK_ID \

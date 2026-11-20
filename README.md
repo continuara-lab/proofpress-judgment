@@ -92,6 +92,42 @@ Hooks declare **when** to check; verifiers declare **how** to check. They belong
 the judgment. A host connection supplies events and honors the results.
 [Architecture](docs/ARCHITECTURE.md) · [Behavior and examples](docs/BEHAVIOR.md)
 
+### Deterministic and semantic checks
+
+Proofpress combines deterministic rules with semantic judgment and behavioral
+constraints. Both can belong to the same reviewed judgment:
+
+| Type | How it decides | Example |
+| --- | --- | --- |
+| **Deterministic** | Apply an explicit built-in rule to known facts or actions. | Block direct edits to `src/generated/*`. |
+| **Semantic** | Jev assesses the judgment together with context and evidence. | Does this plan incorrectly assume the service runs as a single instance? |
+
+Semantic assessment handles meaning and context. Deterministic execution ensures
+that a declared check runs and applies its result: allow, pause or request repair.
+**Deterministically pausing when Jev does not pass does not make Jev's judgment
+itself deterministic.** Semantic errors and uncertainty remain possible.
+
+Built-in rules and semantic criteria are enough to try the core experience.
+Custom verifier programs can be added later when a concrete use case needs them;
+this release does not execute agent-generated verifier code.
+
+### Draft checks when capturing a judgment
+
+An agent can propose the checks alongside the judgment. After a correction such
+as “change the source schema instead of hand-editing generated clients,” it can
+draft applicability conditions, protected file patterns, a delivery criterion
+requiring schema changes and regeneration evidence, and failure handling.
+
+Here, **drafting a verifier means selecting built-in rules and their parameters,
+and writing semantic check criteria**. Proofpress executes the supported checks.
+The agent must ground paths, scope and intent in the actual project and correction;
+missing information stays explicit rather than becoming a guessed constraint.
+
+**Automatically draft; review with the judgment; enable only after approval.**
+Capture creates a candidate. A human reviews the judgment and proposed behavior
+together before it can govern later tasks. Not every captured lesson needs a
+blocking check. [Example and supported declarations](docs/BEHAVIOR.md)
+
 ## Agent Judgment Format (AJF)
 
 AJF is the portable JSON format for a judgment. Version `0.4-draft` adds optional
@@ -165,9 +201,14 @@ session and complete the host's trust flow. Protocol fixtures cover this new
 path; live-host lifecycle verification is still pending. Stop cannot retract
 streamed text or prevent an earlier external side effect.
 
-For Codex or Cursor, `enforce install --host codex|cursor --confirm` installs the
-action adapter. Task preparation/session attachment and completion checks still
-need explicit integration; see the [CLI example](docs/BEHAVIOR.md#codex-and-cursor).
+For Codex or Cursor, run `enforce install --host codex --confirm` or
+`enforce install --host cursor --confirm`. These now connect task preparation,
+action checks and automatic completion review too; no manual finish command is
+required for ordinary native completion. Codex supplies prompt context directly.
+Cursor supplies it through a one-time denial before the first tool, then captures
+the actual response and reviews it on `stop`. Cursor can request one follow-up;
+its stop hook cannot hide or retract a response already displayed.
+[Host-specific behavior](docs/BEHAVIOR.md#host-coverage)
 
 Run `proofpress doctor` to inspect connections, judgment checks and observed
 actions. An installed entry may receive every tool event, but only matching

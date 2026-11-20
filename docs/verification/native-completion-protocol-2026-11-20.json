@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-20",
+  "kind": "native-completion-protocol-validation",
+  "synthetic_fixture_only": true,
+  "sources": [
+    "https://learn.chatgpt.com/docs/hooks",
+    "https://cursor.com/docs/hooks"
+  ],
+  "coverage": {
+    "codex": [
+      "UserPromptSubmit context/task attachment",
+      "PreToolUse supported deny fields and patch target checks",
+      "Stop actual response review",
+      "same-task continuation across native turns",
+      "bounded retry and unknown pause"
+    ],
+    "cursor": [
+      "beforeSubmitPrompt preparation",
+      "preToolUse context delivery before first tool",
+      "afterAgentResponse actual text capture",
+      "conversation/generation association",
+      "stop bounded follow-up",
+      "unknown handoff without semantic re-review",
+      "missing response and aborted/error pause"
+    ]
+  },
+  "subprocess_fixture": {
+    "actual_synthetic_write_denied_before_plan": true,
+    "allowed_after_plan": true,
+    "files_and_response_checked_on_stop": true,
+    "host_is_simulated": true
+  },
+  "live_hosts": {
+    "codex": {
+      "version": "0.169.0",
+      "status": "startup_failed",
+      "native_events_observed": 0,
+      "reason": "In-process app-server initialization failed with read-only filesystem; SQLite/log path overrides did not permit startup."
+    },
+    "cursor": {
+      "status": "not_run",
+      "reason": "No installed client available in the execution environment."
+    }
+  },
+  "limits": [
+    "Protocol/subprocess fixtures do not establish real-client execution or semantic assessment quality.",
+    "Cursor stop runs after response and has no pre-display veto.",
+    "Neither host adapter can retract streamed text or undo prior external side effects."
+  ],
+  "automated_checks": {
+    "root_tests": 179,
+    "playground_tests": 17,
+    "native_completion_regressions": 18
+  }
+}

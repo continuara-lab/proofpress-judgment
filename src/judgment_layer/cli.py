@@ -157,7 +157,8 @@ def parser():
     s.add_argument("--confirm", action="store_true")
     s = sub.add_parser("workflow-hook", help=argparse.SUPPRESS)
     s.add_argument("--workflow", required=True)
-    sub.add_parser('behavior-hook', help=argparse.SUPPRESS)
+    s = sub.add_parser('behavior-hook', help=argparse.SUPPRESS)
+    s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
     s = sub.add_parser('enforce', help='Connect judgment-owned checks to this project; no workflow configuration')
     s.add_argument('action', choices=['install', 'remove'])
     s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
@@ -281,8 +282,11 @@ def run(args):
             event = None
         args._hook_event = event
         if args.command in {'workflow-hook', 'behavior-hook'}:
+            if getattr(args, 'host', None) == 'cursor':
+                from .cursor import lifecycle_handle
+                return lifecycle_handle(args.workspace, event)
             from .lifecycle import handle
-            return handle(args.workspace, getattr(args, 'workflow', '@judgments'), event)
+            return handle(args.workspace, getattr(args, 'workflow', '@judgments'), event, getattr(args, 'host', 'claude-code'))
         if args.command=='cursor-hook':
             from .cursor import handle
             return handle(args.workspace,event)
@@ -340,12 +344,10 @@ def run(args):
                 from . import hosts, lifecycle
                 if args.action == 'install':
                     connected = connect(store, args.project, load(args.facts) if args.facts else connection(store)['facts'], args.confirm)
-                    result = (lifecycle.install(store, AUTOMATIC, args.confirm, args.env_file, connected['project_root'])
-                              if args.host == 'claude-code' else hosts.install(store, args.project, args.host, args.confirm, args.env_file))
+                    result = lifecycle.install(store, AUTOMATIC, args.confirm, args.env_file, connected['project_root'], args.host)
                     return {**result, 'judgment_behavior': True, 'facts': connected['facts'],
-                            'coverage': 'prompt/action/stop' if args.host == 'claude-code' else 'action; task prepare/attach and completion require explicit integration'}
-                return (lifecycle.remove(store, AUTOMATIC, args.confirm) if args.host == 'claude-code'
-                        else hosts.remove(store, args.host, args.confirm))
+                            'coverage': 'prompt/action/stop' if args.host != 'cursor' else 'prompt preparation/action checks/automatic post-response review and bounded follow-up'}
+                return lifecycle.remove(store, AUTOMATIC, args.confirm, args.host)
             if args.command == "workflow":
                 from .workflows import configure
                 return configure(store, load(args.source), args.confirm)
@@ -609,7 +611,12 @@ def main(argv=None):
                     event = load('-')
                 except (ValueError, OSError):
                     event = None
-            print(json.dumps(failure(event, 'Provider configuration or lifecycle check unavailable')))
+            if getattr(args, 'host', None) == 'cursor':
+                from .cursor import lifecycle_failure
+                result = lifecycle_failure(event, 'Provider configuration or lifecycle check unavailable')
+            else:
+                result = failure(event, 'Provider configuration or lifecycle check unavailable')
+            print(json.dumps(result))
             return 0
         if args.command in {"hook", "managed-hook"}:
             print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Proofpress failed; action paused"}}))

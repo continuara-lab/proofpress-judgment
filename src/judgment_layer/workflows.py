@@ -196,7 +196,7 @@ def control_command(store, task_id, event):
         if args.env_file:
             from .lifecycle import manifest_path
             allowed_env = {store.root.resolve() / 'jev.env'}
-            manifest = manifest_path(store)
+            manifest = manifest_path(store, event.get('host', 'claude-code'))
             if manifest.exists():
                 configured_env = json.loads(manifest.read_text()).get('env_file')
                 if configured_env:
@@ -411,9 +411,17 @@ def status(store, task_id):
                     if action_event and action_event['seq'] > finish['seq']:
                         state = 'delivery_paused'
                         reasons.append('action_after_finish')
+                    turn = latest(store, task_id, 'task_host_turn')
+                    if turn and turn['seq'] > finish['seq']:
+                        state = 'delivery_paused'
+                        reasons.append('completion_turn_changed')
                 except (OSError, ValueError) as exc:
                     state = 'delivery_paused'
                     reasons.append(str(exc))
+    host_pause = latest(store, task_id, 'task_host_paused')
+    if host_pause and (not finish or host_pause['seq'] > finish['seq']):
+        state = 'delivery_paused'
+        reasons.append(host_pause['data']['reason'])
     action_labels = {
         'context_paused': ['Clarify scope/facts with the owner, then task-prepare again'],
         'planning': ['Read supplied judgments; write plan draft; run task-plan'],

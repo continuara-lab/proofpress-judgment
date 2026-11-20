@@ -213,7 +213,10 @@ each judgment owns its applicability and checks.
 `task-prepare --task TASK --description REQUEST_FILE` defaults to admitted
 judgments, without `--workflow`. It supplies context and `requires_plan` plus a
 context token. Only a declared `before_execution` hook requires `task-plan`.
-Use `task-attach` for explicit host sessions and `task-finish-files`/`task-export`
+Native `enforce install` now connects prompt, action and completion events for
+Claude Code, Codex and Cursor; Cursor completion is post-response review with a
+bounded follow-up. For custom integrations, use `task-attach` for explicit host
+sessions and `task-finish-files`/`task-export`
 for reviewed file bundles. Claude's native Stop path reviews files and response
 together; don't duplicate it with file-only review for ordinary completion.
 Existing `workflow`, `workflow-hooks`, `bind` and explicit `task-start` interfaces

@@ -27,6 +27,10 @@ A judgment may include AJF 0.4 task criteria and `behavior`: supplied context,
 hooks, verifiers, artifact paths and failure handling. Use `proofpress example
 --behavior` to inspect the supported shape before proposing one. Criteria and
 checks belong in that candidate; do not invent an extra workflow configuration.
+When a correction establishes a reusable, bounded constraint, also draft suitable
+built-in rule parameters and semantic verification criteria in that candidate.
+Ground paths and conditions in observed project facts; leave uncertainty explicit
+instead of inventing scope. Not every captured lesson needs a blocking check.
 Only declared built-in action rules and semantic stage checks are supported.
 Never embed executable shell/Python or imply a custom verifier ran.
 
@@ -41,14 +45,20 @@ and run the supplied `plan_command`, or `task-plan --task TASK --context CONTEXT
 --plan PLAN_PATH`. Include assumptions and verification steps. Covered writes
 remain paused until it passes. If false, no plan assessment was requested; do
 not describe that as a passed semantic review. For Codex/Cursor, use `task-attach`
-only with the actual host and current session id. Installing a skill does not
+only with the actual host and current session id for custom explicit integrations.
+Native Claude/Codex/Cursor lifecycle connections prepare and attach automatically;
+do not duplicate those tasks or their completion checks. Installing a skill does not
 install interception or automatically connect task/completion events.
 
 On pause inspect `task-status --task TASK`. Failed plans need revision. Failed
 delivery permits repair after a current plan, while action rules remain active.
 Recheck changed artifacts. For Claude lifecycle tasks, let Stop check declared
 files and actual final response together; do not duplicate ordinary completion
-with file-only review. Explicit integrations use `task-finish-files` and
+with file-only review. Codex native Stop reviews actual final text and declared
+files automatically; preserve its task-bound continuation marker on repair.
+Cursor captures actual final text and reviews on stop; its bounded follow-up cannot
+retract displayed text. Respect human handoff and never start a new task to evade
+a failed verdict. Explicit integrations use `task-finish-files` and
 `task-export` for the exact reviewed local file bundle. Unknown is never approval.
 
 Human exceptions are exact-artifact decisions, not permanent edits. Do not

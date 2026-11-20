@@ -1,4 +1,4 @@
-"""Project-local skill installation, with no host config edits or owner actions."""
+"""Project-local skill and startup guidance installation."""
 import shlex
 import json
 import hashlib
@@ -39,7 +39,7 @@ def check_path(path, root):
             raise JudgmentError(f"Setup parent is not a directory: {entry}")
 
 
-def setup(project, workspace, agents, owner=None, dry_run=False, upgrade=False):
+def setup(project, workspace, agents, owner=None, dry_run=False, upgrade=False, startup=False):
     root = Path(project).resolve()
     if not root.is_dir():
         raise JudgmentError("Project must be an existing directory")
@@ -89,6 +89,10 @@ def setup(project, workspace, agents, owner=None, dry_run=False, upgrade=False):
             if target.exists() and (not target.is_file() or (target.read_text() != text and not upgrade)):
                 raise JudgmentError(f"Existing file differs; preserve or move it before setup: {target}")
             planned[target] = text
+    startup_files = []
+    if startup:
+        from .startup import apply_changes, plan_startup
+        _, _, startup_files = plan_startup(root, store, selected)
     # Preflight all conflicts before creating a store or any skill files.
     created = []
     if not dry_run:
@@ -110,13 +114,25 @@ def setup(project, workspace, agents, owner=None, dry_run=False, upgrade=False):
         saved.update({str(target):hashlib.sha256(text.encode()).hexdigest() for target,text in planned.items()})
         from .hosts import atomic_json
         atomic_json(manifest,saved)
+        if startup_files:
+            workspace_store = Store(store)
+            try:
+                with workspace_store.transaction():
+                    changes, startup_manifest, startup_files = plan_startup(root, store, selected)
+                    apply_changes(changes)
+                    atomic_json(store / "startup.json", startup_manifest)
+            finally:
+                workspace_store.close()
+    next_steps = ["Start a new session in this project."]
+    if set(selected) - {"codex", "claude-code", "cursor"} or not startup_files:
+        next_steps.append("Invoke the Proofpress skill when your host loads skills on demand.")
     return {
         "ok": True, "dry_run": dry_run, "project": str(root), "workspace": str(store),
         "agents": selected, "admission": "manual", "hooks_installed": False,
         "skill_directories": sorted({str(root / AGENTS[a] / "proofpress") for a in selected}),
+        "startup_files": startup_files,
         "created": created,
-        "next": ["Reload agent skills or start a new session in this project.",
-                 "Ask the agent to use Proofpress to capture a correction; review it yourself.",
+        "next": [*next_steps,
                  "Hermes requires a Git project and your own `hermes skills trust` confirmation.",
                  "Remote agents need the CLI and workspace provisioned on their own machine."],
         "boundary": "Skill entry points prepared, not live-host verification or action enforcement.",

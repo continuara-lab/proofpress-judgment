@@ -1,81 +1,121 @@
-# Cursor native adapter
+# Enforce judgments
 
-`proofpress hooks install --host cursor --confirm` registers a native `preToolUse`
-handler in `.cursor/hooks.json`, preserving other handlers. The adapter uses the
-same review-bound runtime checks and returns Cursor's permission schema. Synthetic
-adapter tests and four real Cursor CLI lifecycle scenarios passed;
-[verification receipt](verification/live-cursor-hooks-2026-11-09.json). IDE and Tab
-coverage have not been independently verified. [Cursor setup and coverage](CURSOR.md).
+> **Default: judgment-owned behavior.** Use [Behavior](BEHAVIOR.md) and
+> `proofpress enforce install`; no workflow configuration or separate binding is
+> required. The explicit bindings/workflow configuration below remains an advanced
+> compatibility interface. New lifecycle integration is protocol-tested, not live-host verified.
 
-# Installed Codex verification
+Enforcement checks a covered tool action before it runs. Start with
+`proofpress review ID`, choose **Enforcement**, then inspect the verifier and
+protected paths. One approval admits the judgment and binds that check to the
+exact revision. [Review and recovery walkthrough](LOCAL-ALPHA.md)
 
-[Installed-hook receipt](verification/installed-codex-hooks-2026-11-09.json) records
-four successful new-session checks with Codex 0.153.4. The project hook was installed
-by the production CLI, then the synthetic project and exact hook were reviewed
-through Codex's ordinary trust UI. No inline hook injection or trust-bypass flag
-was used. Checks covered generated-file denial, superseded-binding denial,
-explicit rebinding allowing a real patch, and withdrawal denying the next patch.
-Every scenario required a hook ledger event and the expected file result.
+## Schedule checks by task boundary
 
-Rerun with `python scripts/verify_installed_hooks.py --prepare`, trust only that
-synthetic project and its hook in Codex, then run `--run-live --project PATH --model
-AVAILABLE_MODEL --output /private/path/receipt.json`. This makes real model calls.
-It never opens a normal user's judgment store. Model/account configuration must
-be usable; a request failing before tool execution is not a successful block.
+[Context-first enforcement](TASK-BOUNDARIES.md) adds workflow-specific scope criteria,
+Jev-assisted scope resolution, context injection before planning, gated source
+writes, output review, pause/recovery UX and exact-artifact exceptions. Claude has
+an opt-in prompt/pre-tool/Stop bridge for this advanced workflow API. The
+default judgment-owned `enforce install` also connects native Codex and Cursor
+completion automatically; see [host coverage](BEHAVIOR.md#host-coverage). `task-export` gates a concrete reviewed local bundle. Stop cannot
+retract streamed text or authorize external side effects. Existing owner-approved
+action bindings retain their behavior.
 
-# Guided enforcement and recovery
+## Install a host hook
 
-`proofpress review ID` now displays proposed enforcement beside the judgment.
-Choose Enforcement, set the verifier, project and paths, then approve the exact
-preview. Admission and binding are atomic. `bind --from FILE --confirm` remains
-an explicit lower-level operation.
+Copy the [install command for your agent](../README.md#enforce-judgments).
+The installer preserves existing hook entries. To preview the registration
+first, run the command without `--confirm`.
 
-Install with `proofpress hooks install --host codex --confirm`; this preserves
-other hook registrations in `.codex/hooks.json`. Host project trust and exact-hook
-trust are separate: restart Codex and use `/hooks`. `doctor` reports configuration
-and the last observed check, never grants or assumes trust. See the
-[official hook trust guide](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+| Host | Command value | Configuration | Verification |
+| --- | --- | --- | --- |
+| Codex | `codex` | `.codex/hooks.json` | [Installed-hook lifecycle](verification/installed-codex-hooks-2026-11-09.json) |
+| Claude Code | `claude-code` | `.claude/settings.local.json` | [Live Write denial](verification/live-claude-hook-2026-11-08.json) |
+| Cursor | `cursor` | `.cursor/hooks.json` | [Cursor CLI lifecycle](verification/live-cursor-hooks-2026-11-09.json) |
 
-Use `pause --confirm` / `resume --confirm` for an explicit owner pause. Withdrawn
-or superseded bindings keep blocking until explicitly reviewed/rebound or removed
-with `unbind ID --confirm`. `hooks remove --host codex --confirm` unregisters only
-the managed entry. No bindings means the managed hook does not block ordinary work.
-While bindings exist, unsupported shell/MCP routes pause conservatively. A missing
-CLI emits a denial fallback; host timeouts and disabled/untrusted hooks remain
-outside this cooperative gate's guarantees.
+Restart the host in the project and inspect the registered hook. In Codex,
+trust the project and review the exact entry in `/hooks`. `proofpress doctor`
+shows local configuration, active bindings and the last observed hook check.
+[Codex trust flow](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks) ·
+[Claude Code hooks](https://code.claude.com/docs/en/hooks) · [Cursor coverage](CURSOR.md)
 
-[Full local workflow](LOCAL-ALPHA.md). The earlier explicit binding API and live
-prototype receipts below remain useful for comparison.
+## What the hook checks
 
-# Runtime checks and optional decision model assessment
+- **Protected paths.** Block direct edits to matched generated files.
+- **Revision and conditions.** Pause on stale or withdrawn bindings, unresolved
+  conflicts or unmet conditions.
+- **Decision model.** Assess full new-file content before writing. Partial
+  edits, violations, uncertainty and provider errors pause this verifier.
 
-Local prototype. Manual admission is still required. No hooks are installed by
-`setup`. BYOK TypeSafe assessment and Claude Code / Codex handlers are implemented;
-other host adapters are researched in [HOST-HOOKS.md](HOST-HOOKS.md).
+With active bindings, unsupported routes such as shell and MCP pause
+conservatively. A passed check leaves the host's own tool permissions in effect.
+Coverage depends on emitted events, host trust and host failure behavior. The
+hook is a cooperative local check. [Security boundaries](../SECURITY.md)
 
-## Assess a nuanced judgment
+## Recover after a pause
 
-Copy `.env.example` to your private `.env`, add your TypeSafe API key, and select
-a model available to your account. The example model is configurable, not a
-promise of model availability. Explicit loading avoids silently sending data.
+Review the reason and the bound revision. Reject or revise a conflicting
+candidate, or review a replacement binding if the previous version was
+superseded. A withdrawn or superseded binding keeps protection in place
+until you rebind or run `proofpress unbind ID --confirm`.
 
-```sh
-proofpress --env-file .env capture --from candidate.json --decision-model
-proofpress --env-file .env assess JUDGMENT_ID
+Use `proofpress pause --confirm` and `proofpress resume --confirm` to change
+whether managed hooks check actions. Use `proofpress hooks remove --host HOST
+--confirm` to remove only the managed registration. With no bindings, the
+managed hook leaves normal host permissions in effect.
+
+## Set up Jev
+
+After onboarding, create `.judgment/jev.env` in your project with the settings
+below. The installer sets up the project but keeps provider configuration
+opt-in. The workspace's generated `.gitignore` keeps this file out of Git.
+
+```dotenv
+PROOFPRESS_DECISION_MODEL_PROVIDER=typesafe
+PROOFPRESS_DECISION_MODEL=jev-1.13.0
+TYPESAFE_API_KEY=
 ```
 
-This sends the candidate and overlapping admitted judgments to TypeSafe. Only
-those selected records are sent; source sessions and keys are not logged. Provider
-errors, missing configuration, malformed answers or uncertain results become
-`unknown`. Conservative prototype cutoffs are probability >= .95 and confidence
->= .90; these thresholds are not empirically validated risk calibration.
+Fill in your TypeSafe key and choose a model available to your account.
+Use a dedicated env file because the CLI accepts only decision-model settings.
+[Environment template](../.env.example)
+
+For advice on whether evidence supports human admission, see [Review policy](INTAKE.md#review-policy).
+
+### Screen a candidate for conflicts
+
+```sh
+proofpress inbox
+proofpress --env-file .judgment/jev.env assess JUDGMENT_ID
+```
+
+Use the candidate ID from the inbox. This sends the proposed judgment and
+overlapping admitted judgments to TypeSafe to look for conflicts. To request
+the same check at capture time, use `capture --from candidate.json --decision-model`
+with the same global `--env-file` option. Uncertain results and provider errors
+are recorded as `unknown`. Review the candidate and result in the CLI.
+
+### Check a covered write
+
+During review, choose **Enforcement** and select the decision-model check for
+the paths you want to protect. Approve the binding, then install or refresh
+your host hook with the same env file. For example, with Codex:
+
+```sh
+proofpress --env-file .judgment/jev.env hooks install --host codex --confirm
+```
+
+Restart the host and inspect the updated hook in its trust flow. A covered
+new-file write sends the full proposed content and the exact bound judgment
+to TypeSafe. Partial edits, violations, uncertain results and provider
+failures pause this check. Use this option for content you can send to the
+provider.
 
 [TypeSafe Choice API](https://docs.typesafe.ai/primitives/choice) defines the
-request and answer format. The first provider is TypeSafe; no generic
-OpenAI-compatible endpoint support is claimed. Unit tests use synthetic provider replies. Real keyed TypeSafe requests using
-`jev-1.13.0` also passed in the November 8 Codex verification: a violating output
-was denied and a compliant output was released. This is integration evidence,
-not a quality or calibration benchmark.
+request and answer format. Prototype cutoffs are probability ≥ 0.95 and
+confidence ≥ 0.90. The [live Codex receipt](verification/live-codex-hooks-2026-11-08.json)
+records one blocked violating output and one released compliant output with
+`jev-1.13.0`.
 
 ## Flag conflict before reuse
 
@@ -118,8 +158,8 @@ Human operator only: inspect an admitted judgment, then prepare a binding file:
 proofpress bind --from binding.json --confirm
 ```
 
-Binding is a separate, human-confirmed governance event, not an editable AJF
-approval. A new binding for the same judgment explicitly replaces its old binding.
+This explicit binding command is useful for scripts. The interactive review
+flow can admit and bind in one operation. A new binding for the same judgment explicitly replaces its old binding.
 Withdrawn or superseded bindings block covered actions until a human rebinds them;
 withdrawal never silently removes protection. Binding path patterns are explicit
 owner configuration, not a model's claim about generated status.
@@ -129,31 +169,12 @@ the bound judgment and pauses violations or uncertainty. It rejects partial Edit
 requests because it cannot assess the full resulting document. This is a model
 assessment gate; passing does not establish correctness of meaning.
 
-## Configure Claude Code
+## Claude Code handler details
 
-Use absolute executable/store paths. Merge this entry with existing settings;
-do not replace the user's other hooks. Add `--env-file /private/path/.env` before
-`--workspace` only for the decision model verifier.
-
-```json
-{"hooks":{"PreToolUse":[{"hooks":[{
-  "type":"command",
-  "command":"/absolute/venv/bin/proofpress --workspace /absolute/project/.judgment hook",
-  "timeout":15,
-  "onFailure":"block"
-}]}]}}
-```
-
-`onFailure: block` requires Claude Code >= 2.1.295 according to its current docs.
-The locally installed version is 2.1.241. An attempted isolated live-host run exited
-before invoking the hook (zero hook events) because its OAuth session had expired.
-After the user renewed login, a real Claude Code write attempt was retested:
-one hook event recorded a denial, the target file was not created, and the host
-exited successfully. See [Claude retest receipt](verification/live-claude-hook-2026-11-08.json).
-Only this Claude blocking scenario is verified; the full lifecycle sequence below
-was exercised in Codex.
-Do not describe a missing output file from that failed run as a successful block.
-[Claude Code reference](https://code.claude.com/docs/en/hooks)
+The live receipt above verifies one real Write denial through the Claude Code
+handler. It used an explicit test registration. For ordinary setup, use the
+managed project hook command above. To load a decision-model key for the hook,
+pass `--env-file /private/path/.env` before the subcommand when installing.
 
 The handler reads a PreToolUse event from stdin. Write/Edit use absolute target
 paths and must stay in the bound project after symlink resolution. Generated-file
@@ -210,10 +231,8 @@ or unexpected file results fail the run.
 For this isolated automation, the script passes the inspected hook definition in
 invocation-local `-c hooks.PreToolUse=...` configuration. Its one-invocation hook
 trust bypass is limited to that test harness; it does not persist trust or disable
-the Codex execution sandbox. An initial project-discovery-only trial emitted no
-hook receipts and allowed the edit, so project auto-discovery/trust installation
-is not considered verified. Regular user installation must use the host's normal
-hook trust workflow. The playground's generation-only demo is not automatically
+the Codex execution sandbox. The [installed-hook receipt](verification/installed-codex-hooks-2026-11-09.json)
+separately verifies the managed registration through the normal trust workflow. The playground's generation-only demo is not automatically
 converted into this tool-using harness.
 
 Keys remain in the selected local environment file. No production deployment,

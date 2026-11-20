@@ -4,7 +4,7 @@ import math
 import os
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-from .model import canonical, digest
+from .model import JudgmentError, canonical, digest
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -12,11 +12,32 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def assess(state, question, options):
-    model = os.environ.get('PROOFPRESS_DECISION_MODEL', os.environ.get('PROOFPRESS_SEMANTIC_MODEL', ''))
+PROVIDER_ENV_KEYS = {
+    "TYPESAFE_API_KEY", "PROOFPRESS_SEMANTIC_PROVIDER", "PROOFPRESS_SEMANTIC_MODEL",
+    "PROOFPRESS_DECISION_MODEL_PROVIDER", "PROOFPRESS_DECISION_MODEL",
+}
+
+
+def read_provider_env(path):
+    values = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if not sep or key not in PROVIDER_ENV_KEYS:
+            raise JudgmentError("Unsupported BYOK environment entry")
+        values.setdefault(key, value.strip().strip("\"'"))
+    return values
+
+
+def assess(state, question, options, *, environment=None):
+    env = {**(environment or {}), **os.environ}
+    model = env.get('PROOFPRESS_DECISION_MODEL', env.get('PROOFPRESS_SEMANTIC_MODEL', ''))
     result = {'choice':'unknown', 'provider':'typesafe', 'model':model,
               'input_digest':digest(state), 'question_digest':digest({'question':question,'options':options})}
-    if os.environ.get('PROOFPRESS_DECISION_MODEL_PROVIDER', os.environ.get('PROOFPRESS_SEMANTIC_PROVIDER')) != 'typesafe' or not model or not os.environ.get('TYPESAFE_API_KEY'):
+    if env.get('PROOFPRESS_DECISION_MODEL_PROVIDER', env.get('PROOFPRESS_SEMANTIC_PROVIDER')) != 'typesafe' or not model or not env.get('TYPESAFE_API_KEY'):
         return {**result, 'reason':'semantic_provider_not_configured'}
     try:
         body = {'model':model, 'state':state, 'questions':{'assessment':{
@@ -25,7 +46,7 @@ def assess(state, question, options):
         if len(canonical(body).encode()) > 64000:
             return {**result,'reason':'semantic_input_too_large'}
         request = Request('https://api.typesafe.ai/v1/systemone', data=canonical(body).encode(),
-                          headers={'Authorization':'Bearer '+os.environ['TYPESAFE_API_KEY'],'Content-Type':'application/json'})
+                          headers={'Authorization':'Bearer '+env['TYPESAFE_API_KEY'],'Content-Type':'application/json'})
         with build_opener(NoRedirect()).open(request, timeout=10) as response:
             data = json.loads(response.read(1_000_000))
         answer = data['answers']['assessment']

@@ -32,7 +32,8 @@ class CursorTests(unittest.TestCase):
         self.assertEqual(handle(self.ws,self.event('Shell',{'command':'echo dangerous'}))['permission'],'deny')
         self.assertEqual(handle(self.ws,self.event('Read',{'path':'generated/user.py'}))['permission'],'allow')
         events=[e for e in self.s.events() if e['kind']=='runtime_checked']
-        self.assertEqual(len(events),3)
+        # Known reads intentionally bypass the store and have no runtime receipt.
+        self.assertEqual([e['data']['tool_name'] for e in events], ['Write', 'Bash'])
         self.assertEqual(events[0]['data']['session_id'],'synthetic-cursor')
     def test_ambiguous_or_invalid_events_block(self):
         for value in (None,{},self.event(args={'path':'generated/a','file_path':'generated/b'}),self.event(args={'path':'generated/a','contents':'a','content':'b'})):

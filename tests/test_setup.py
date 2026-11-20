@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from judgment_layer.model import JudgmentError
+from judgment_layer.hosts import uninstall
 from judgment_layer.setup import AGENTS, setup
 from judgment_layer.store import Store
 
@@ -49,6 +50,46 @@ class SetupTests(unittest.TestCase):
         result = setup(self.root, ".judgment", list(AGENTS), dry_run=True)
         self.assertTrue(result["dry_run"])
         self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_startup_install_is_idempotent_and_uninstall_preserves_project_edits(self):
+        original = b"# Existing instructions\r\nKeep this text."
+        instructions = self.root / "AGENTS.override.md"
+        instructions.write_bytes(original)
+        agents = ["codex", "claude-code", "cursor"]
+        result = setup(self.root, ".judgment", agents, "human:synthetic-owner", startup=True)
+        paths = [Path(path) for path in result["startup_files"]]
+        before = [path.read_bytes() for path in paths]
+        self.assertEqual(set(paths), {instructions, self.root / ".claude/rules/proofpress.md",
+                                      self.root / ".cursor/rules/proofpress.mdc"})
+        self.assertTrue(instructions.read_bytes().startswith(original))
+        self.assertFalse((self.root / "AGENTS.md").exists())
+        self.assertIn(b"alwaysApply: true", (self.root / ".cursor/rules/proofpress.mdc").read_bytes())
+        setup(self.root, ".judgment", agents, startup=True)
+        self.assertEqual([path.read_bytes() for path in paths], before)
+        added = b"\nMore project instructions.\n"
+        instructions.write_bytes(instructions.read_bytes() + added)
+        edited = self.root / ".claude/rules/proofpress.md"
+        edited.write_text("My updated startup rule.\n")
+        store = Store(self.root / ".judgment")
+        try:
+            with store.transaction():
+                result = uninstall(store, self.root, confirmed=True)
+        finally:
+            store.close()
+        self.assertEqual(instructions.read_bytes(), original + added)
+        self.assertEqual(edited.read_text(), "My updated startup rule.\n")
+        self.assertIn(str(edited), result["review_result"])
+        self.assertFalse((self.root / ".cursor/rules/proofpress.mdc").exists())
+
+    def test_startup_conflict_prevents_store_and_skill_writes(self):
+        path = self.root / ".cursor/rules/proofpress.mdc"
+        path.parent.mkdir(parents=True)
+        path.write_text("Existing project rule.\n")
+        with self.assertRaises(JudgmentError):
+            setup(self.root, ".judgment", ["cursor"], "human:synthetic-owner", startup=True)
+        self.assertEqual(path.read_text(), "Existing project rule.\n")
+        self.assertFalse((self.root / ".judgment").exists())
+        self.assertFalse((self.root / ".agents").exists())
 
     def test_repeat_preserves_store_and_rejects_owner_change(self):
         setup(self.root, ".judgment", ["codex"], "human:synthetic-owner")

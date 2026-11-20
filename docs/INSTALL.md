@@ -12,8 +12,9 @@ curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/
 ```
 
 The script installs uv if needed, installs the Python CLI in an isolated tool
-environment and enables Codex guidance in the current project. It does not change
-your shell profile. Follow any printed PATH instruction, then check:
+environment and enables Codex startup guidance in the current project. It does not change
+your shell profile. An interactive installation previews the policy and lets you
+keep it or customize capture. Follow any printed PATH instruction, then check:
 
 ```sh
 proofpress doctor
@@ -25,24 +26,27 @@ the project after setup. [First session](AGENT-SETUP.md)
 
 The installer enables manual review and uses `human:<OS username>` as a local
 owner label. This is not authenticated identity. It does not install action hooks
-or import history. [Hook setup](RUNTIME.md)
+or import history. [Hook setup](RUNTIME.md) · [Import sessions](INTAKE.md)
+
+For optional Jev checks, [add a dedicated TypeSafe config](RUNTIME.md#set-up-jev)
+inside your project after onboarding.
 
 ## Choose another agent
 
-To choose Claude Code after the default installation, run:
+Select the host as part of the installation. For Claude Code, run:
 
 ```sh
-proofpress onboard --agents claude-code
+curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash -s -- --agents claude-code
 ```
 
 To add agent guidance after installation, preview in that project:
 
 ```sh
-proofpress onboard --agents cursor codex
+proofpress onboard --startup --agents cursor codex
 ```
 
 Confirm in your terminal. `proofpress configure` changes what the agent may
-capture. [All agent entry points](AGENTS.md)
+capture. [Install commands for all agents](AGENTS.md#install-by-agent)
 
 ## Keep existing Proofpress installations separate
 
@@ -57,7 +61,7 @@ environment in your trial project. Requires uv:
 uv venv --python 3.11 .venv-proofpress-cli
 uv pip install --python .venv-proofpress-cli/bin/python "git+https://github.com/continuara-lab/proofpress-judgment.git"
 source .venv-proofpress-cli/bin/activate
-proofpress onboard
+proofpress onboard --startup
 ```
 
 Activate that environment when using this CLI. Activation changes which executable
@@ -66,20 +70,17 @@ Proofpress store. [Repository map](REPOSITORIES.md)
 
 ## Update the CLI
 
-Rerun the installer from your working project:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/continuara-lab/proofpress-judgment/main/install.sh | bash
-```
+Repeat your agent's [install command](AGENTS.md#install-by-agent) from the project.
+Append `--upgrade` after the agent name to replace a changed Proofpress skill.
 
 Existing stores retain their records and owner. Refreshed skill files are backed
 up under `.judgment/skill-backups/`. For a manually installed environment, update
-the package in that environment and use `proofpress onboard --upgrade`.
+the package in that environment and use `proofpress onboard --startup --upgrade`.
 
 ## Remove the integration
 
 Preview with `proofpress uninstall`; repeat with `--confirm` to remove managed
-hooks and unchanged installed skills. Edited skill files and the judgment store
+hooks and unchanged installed skills and startup guidance. Edited files and the judgment store
 remain. Restart your agent after removal. For uv tool installation, remove the
 package with `uv tool uninstall judgment-layer` after removing integration.
 

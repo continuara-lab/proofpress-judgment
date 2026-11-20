@@ -38,13 +38,14 @@ def parser():
     s.add_argument("--owner", help="Required for a new workspace: human:<name>")
     s.add_argument("--dry-run", action="store_true", help="Preview paths without changing files")
     s.add_argument("--format", choices=["text", "json"], default="text")
-    sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    s = sub.add_parser("example", help="Print a synthetic coding judgment to adapt before capture")
+    s.add_argument('--behavior', action='store_true', help='Include AJF-owned matching, hooks and verifiers')
     sub.add_parser("schema", help="Print the bundled AJF JSON Schema")
     s = sub.add_parser("init", help="Initialize a manual-only local workspace")
     s.add_argument("--owner", required=True, help="Self-asserted local human:<name> identity")
     s = sub.add_parser("capture", help="Store an explicit AJF candidate; never admits")
     s.add_argument("--from", dest="source", required=True)
-    s.add_argument("--model-assessment", "--decision-model", dest="semantic", action="store_true", help="Assess this candidate using your configured decision model")
+    s.add_argument("--model-assessment", "--decision-model", dest="semantic", action="store_true", help="Screen this candidate for conflicts using your configured decision model")
     s.add_argument("--semantic", dest="semantic", action="store_true", help=argparse.SUPPRESS)
     s = sub.add_parser("import", help="Import one captured judgment for review")
     s.add_argument("--session", required=True)
@@ -114,10 +115,62 @@ def parser():
     s = sub.add_parser("bind", help="Human-only: bind an admitted judgment to a runtime verifier")
     s.add_argument("--from", dest="source", required=True)
     s.add_argument("--confirm", action="store_true")
+    for action in ("start", "finish", "check"):
+        s = sub.add_parser("task-" + action, help="Explicit workflow task " + action + " checkpoint")
+        s.add_argument("--task", required=True, help="Workflow-owned task id, not an inferred host session")
+        s.add_argument("--facts", required=True)
+        if action == "start":
+            s.add_argument("--scope", required=True)
+            s.add_argument("--plan", required=True, help="Text file containing the task plan")
+        else:
+            s.add_argument("--artifacts", required=True, help="JSON object of artifact names to complete text")
+        if action == "finish":
+            s.add_argument("--evidence", help="Text file with supporting review context or test evidence")
+    s = sub.add_parser("workflow", help="Preview or configure owner-reviewed scope criteria and gates")
+    s.add_argument("--from", dest="source", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("task-prepare", help="Resolve scope and supply context before planning")
+    s.add_argument("--task", required=True)
+    s.add_argument("--workflow", default='@judgments', help='Advanced legacy workflow id; default uses admitted judgments directly')
+    s.add_argument("--description", required=True, help="Text file with the task request")
+    s = sub.add_parser("task-plan", help="Assess a plan against the previously supplied context")
+    s.add_argument("--task", required=True)
+    s.add_argument("--context", required=True)
+    s.add_argument("--plan", required=True)
+    s = sub.add_parser("task-attach", help="Attach a prepared task to an explicit host session")
+    s.add_argument("--task", required=True)
+    s.add_argument("--host", choices=["codex", "claude-code", "cursor"], required=True)
+    s.add_argument("--session", required=True)
+    for name in ("task-status", "task-finish-files", "task-export"):
+        s = sub.add_parser(name, help="Inspect, review or export a workflow's configured artifacts")
+        s.add_argument("--task", required=True)
+        if name == "task-finish-files":
+            s.add_argument("--evidence", help="Text file containing additional review evidence")
+    s = sub.add_parser("task-exception", help="Human-only exact-artifact exception; never changes judgments")
+    s.add_argument("--task", required=True)
+    s.add_argument("--artifacts", required=True)
+    s.add_argument("--reason", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("workflow-hooks", help="Install/remove Claude context and Stop lifecycle hooks")
+    s.add_argument("action", choices=["install", "remove"])
+    s.add_argument("--workflow", required=True)
+    s.add_argument("--confirm", action="store_true")
+    s = sub.add_parser("workflow-hook", help=argparse.SUPPRESS)
+    s.add_argument("--workflow", required=True)
+    s = sub.add_parser('behavior-hook', help=argparse.SUPPRESS)
+    s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
+    s = sub.add_parser('enforce', help='Connect judgment-owned checks to this project; no workflow configuration')
+    s.add_argument('action', choices=['install', 'remove'])
+    s.add_argument('--host', choices=['claude-code', 'codex', 'cursor'], default='claude-code')
+    s.add_argument('--project', default='.')
+    s.add_argument('--facts', help='Trusted project facts JSON; missing conditions pause rather than being inferred')
+    s.add_argument('--confirm', action='store_true')
     s = sub.add_parser("hook", help="Synchronous Claude Code PreToolUse handler; reads stdin")
-    sub.add_parser('managed-hook', help=argparse.SUPPRESS)
+    s = sub.add_parser('managed-hook', help=argparse.SUPPRESS)
+    s.add_argument('--host', choices=['codex', 'claude-code'])
     sub.add_parser('cursor-hook', help=argparse.SUPPRESS)
     s = sub.add_parser("onboard", help="Preview or enable project-local capture policy and agent skills")
+    s.add_argument('--startup', action='store_true', help='Configure startup guidance for Codex, Claude Code and Cursor')
     s.add_argument('--upgrade', action='store_true', help='Back up and replace the installed Proofpress skill files')
     s.add_argument("--project", default=".")
     s.add_argument("--agents", nargs="+", choices=sorted(AGENTS), default=["codex"])
@@ -138,12 +191,18 @@ def parser():
     s.add_argument("id")
     s = sub.add_parser("review-assist", help="Deterministic and model-assisted review; never admits")
     s.add_argument("id")
-    s = sub.add_parser("history", help="Import a selected project's Codex history; advanced session tools are available")
+    s = sub.add_parser("review-policy", help="Inspect or configure project model review")
+    s.add_argument("--mode", choices=["manual", "on-capture"])
+    s.add_argument("--criteria", type=Path, help="Read project review criteria from a text file")
+    s.add_argument("--evidence", choices=["candidate", "referenced-history"])
+    s.add_argument("--confirm", action="store_true", help="Save policy and consent to its model inputs")
+    s = sub.add_parser("history", help="Import local Codex, Claude Code or Cursor sessions")
     s.add_argument("action", choices=["scan", "preview", "import", "project"])
     selector=s.add_mutually_exclusive_group()
     selector.add_argument("--file")
     selector.add_argument("--session", help="Stable source key from history scan")
-    s.add_argument("--root", default="~/.codex/sessions")
+    s.add_argument("--agent", choices=["codex", "claude-code", "cursor"], default="codex")
+    s.add_argument("--root", help="Override the selected agent’s local history directory")
     s.add_argument("--days", type=int, default=7)
     s.add_argument("--previews", action="store_true", help="Read short first-user-message previews locally")
     s.add_argument("--confirm", action="store_true", help="Import the selected project's history locally")
@@ -175,7 +234,7 @@ def run(args):
         if not args.id: return review_inbox(args.workspace)
         return interactive_review(args.workspace,args.id)
     if args.command == "onboard":
-        from .intake import onboard, DEFAULT_POLICY
+        from .intake import onboard
         selected = None
         if args.triggers is not None or args.history is not None or args.extraction is not None:
             selected = {}
@@ -184,28 +243,29 @@ def run(args):
                 selected['triggers']=[] if args.triggers==['none'] else args.triggers
             if args.history is not None:selected['history']=args.history
             if args.extraction is not None:selected['extraction']=args.extraction
-        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade)
+        return onboard(args.project,args.workspace,args.agents,args.owner,args.confirm,selected,args.upgrade,args.startup,
+                       getattr(args, 'review_selection', None), getattr(args, 'expected_review_policy', None))
     if args.command == "history" and args.action == "scan":
         from .history import scan
-        return scan(args.root,args.project,args.days,args.previews)
+        return scan(args.root,args.project,args.days,args.previews,agent=args.agent)
     if args.command == "history" and args.action == "project" and not args.confirm:
         from .history import scan
-        found = scan(args.root, args.project, args.days)
-        return {'project_history': True, 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'skipped': found['skipped'], 'imported': False}
+        found = scan(args.root, args.project, args.days, agent=args.agent)
+        return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'skipped': found['skipped'], 'imported': False}
     if args.command == "history" and args.action not in {"scan", "project"}:
         if args.session:
             from .history import resolve_selection
-            args.file=resolve_selection(args.root,args.project,args.days,args.session)
+            args.file=resolve_selection(args.root,args.project,args.days,args.session,agent=args.agent)
         if not args.file:
             raise JudgmentError("Select --session from history scan (or use --file)")
     if args.command == "history" and args.action == "preview":
         from .history import preview
-        return preview(args.file,args.project)
+        return preview(args.file,args.project,agent=args.agent)
     if args.command == "setup":
         return setup(args.project, args.workspace, sorted(AGENTS) if args.all else args.agents,
                      args.owner, args.dry_run)
     if args.command == "example":
-        return json.loads(files("judgment_layer").joinpath("skill/references/coding.json").read_text())
+        return json.loads(files("judgment_layer").joinpath('behavior-example.json' if args.behavior else "skill/references/coding.json").read_text())
     if args.command == "schema":
         return json.loads(files("judgment_layer").joinpath("ajf.schema.json").read_text())
     if args.command == "init":
@@ -214,15 +274,24 @@ def run(args):
         record = validate(load(args.file))
         return {"ok": True, "id": record["id"], "version": record["version"],
                 "boundary": "Shape and bounded consistency only; no admission or factual verification."}
-    if args.command in {"hook", "managed-hook", "cursor-hook"}:
+    if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook", "behavior-hook"}:
         from .runtime import hook
         try:
             event = load("-")
         except (ValueError, OSError):
             event = None
+        args._hook_event = event
+        if args.command in {'workflow-hook', 'behavior-hook'}:
+            if getattr(args, 'host', None) == 'cursor':
+                from .cursor import lifecycle_handle
+                return lifecycle_handle(args.workspace, event)
+            from .lifecycle import handle
+            return handle(args.workspace, getattr(args, 'workflow', '@judgments'), event, getattr(args, 'host', 'claude-code'))
         if args.command=='cursor-hook':
             from .cursor import handle
             return handle(args.workspace,event)
+        if isinstance(event, dict) and getattr(args, 'host', None):
+            event = {**event, 'host': args.host}
         return hook(args.workspace, event, managed=args.command=='managed-hook')
     store = Store(args.workspace)
     try:
@@ -251,7 +320,71 @@ def run(args):
             candidates=extract(batch['data']['batch']['messages'],current_policy) if batch else []
             with store.transaction():
                 return consolidate(store,args.scope,True,(batch['event_id'],candidates) if batch else None)
+        if args.command == "review-assist":
+            from .review_policy import review_assist
+            return review_assist(store, args.id)
+        if args.command in {"capture", "revise"}:
+            from .review_policy import review_assist
+            with store.transaction():
+                if args.command == "capture":
+                    item = store.capture(load(args.source))
+                    if args.semantic:
+                        from .runtime import screen
+                        screen(store, item)
+                        item = store.describe(item["record"])
+                else:
+                    item = store.capture(load(args.source), args.id, args.reason, args.base_digest)
+            advice = review_assist(store, item["id"], item["digest"], automatic=True)
+            if advice is not None:
+                item["review_advice"] = advice
+            return item
         with store.transaction():
+            if args.command == 'enforce':
+                from .behavior import AUTOMATIC, connect, connection
+                from . import hosts, lifecycle
+                if args.action == 'install':
+                    connected = connect(store, args.project, load(args.facts) if args.facts else connection(store)['facts'], args.confirm)
+                    result = lifecycle.install(store, AUTOMATIC, args.confirm, args.env_file, connected['project_root'], args.host)
+                    return {**result, 'judgment_behavior': True, 'facts': connected['facts'],
+                            'coverage': 'prompt/action/stop' if args.host != 'cursor' else 'prompt preparation/action checks/automatic post-response review and bounded follow-up'}
+                return lifecycle.remove(store, AUTOMATIC, args.confirm, args.host)
+            if args.command == "workflow":
+                from .workflows import configure
+                return configure(store, load(args.source), args.confirm)
+            if args.command == "workflow-hooks":
+                from .lifecycle import install, remove
+                return install(store, args.workflow, args.confirm, args.env_file) if args.action == "install" else remove(store, args.workflow, args.confirm)
+            if args.command == "task-prepare":
+                from .workflows import prepare
+                return prepare(store, args.task, args.workflow, Path(args.description).read_text())
+            if args.command == "task-plan":
+                from .workflows import plan
+                return plan(store, args.task, args.context, Path(args.plan).read_text())
+            if args.command == "task-attach":
+                from .workflows import attach
+                return attach(store, args.task, args.host, args.session)
+            if args.command == "task-status":
+                from .workflows import status
+                return status(store, args.task)
+            if args.command == "task-finish-files":
+                from .workflows import finish_files
+                return finish_files(store, args.task, evidence=Path(args.evidence).read_text() if args.evidence else '')[0]
+            if args.command == "task-export":
+                from .workflows import export
+                return export(store, args.task)
+            if args.command == "task-exception":
+                from .workflows import exception
+                return exception(store, args.task, load(args.artifacts), args.reason, args.confirm)
+            if args.command in {"task-start", "task-finish", "task-check"}:
+                from .tasks import start_task, finish_task, check_release
+                facts = load(args.facts)
+                if args.command == "task-start":
+                    return start_task(store, args.task, args.scope, facts, Path(args.plan).read_text())
+                outputs = load(args.artifacts)
+                if args.command == "task-finish":
+                    evidence = Path(args.evidence).read_text() if args.evidence else ""
+                    return finish_task(store, args.task, facts, outputs, evidence)
+                return check_release(store, args.task, facts, outputs)
             if args.command == 'doctor':
                 from .hosts import doctor
                 return doctor(store,args.project)
@@ -284,10 +417,12 @@ def run(args):
                     items.append({'name':r['name'],'version':r['version'],'id':r['id'],'reason':reason or 'applicable'})
                 return {'matches':items,'scope':args.scope}
             if args.command == "capture-policy":
-                from .intake import policy, set_policy
+                from .intake import policy, set_policy, validate_capture_policy
                 changed = any(x is not None for x in (args.triggers,args.history,args.extraction))
                 if args.source and changed:raise JudgmentError('Choose a policy file or CLI options, not both')
-                if args.source:return set_policy(store,load(args.source),args.confirm)
+                if args.source:
+                    proposed=validate_capture_policy(load(args.source))
+                    return set_policy(store,proposed,True) if args.confirm else {'capture_policy':proposed,'preview':True}
                 value = dict(policy(store))
                 if args.triggers is not None:
                     if 'none' in args.triggers and len(args.triggers)>1:raise JudgmentError('none cannot be mixed with other triggers')
@@ -301,25 +436,33 @@ def run(args):
             if args.command == "observations":
                 store.record(args.id)
                 return {"observations":[e for e in store.events() if e['kind']=='outcome_observed' and e.get('judgment_id')==args.id]}
-            if args.command == "review-assist":
-                from .intake import review_assist
-                return review_assist(store,args.id)
+            if args.command == "review-policy":
+                from .review_policy import review_policy, update_review_policy
+                changes = {}
+                if args.mode is not None:
+                    changes["mode"] = args.mode.replace("-", "_")
+                if args.criteria is not None:
+                    changes["criteria"] = args.criteria.read_text().strip()
+                if args.evidence is not None:
+                    changes["evidence"] = args.evidence.replace("-", "_")
+                value = update_review_policy(store, changes, args.confirm) if changes else review_policy(store)
+                return {"review_policy": value}
             if args.command == "history":
                 from .history import ingest, scan
                 if args.action == 'project':
-                    found = scan(args.root, args.project, args.days)
+                    found = scan(args.root, args.project, args.days, agent=args.agent)
                     messages = 0; pending = 0; errors = []
                     for item in found['sessions']:
                         try:
                             while True:
-                                batch = ingest(store, item['path'], args.project)
+                                batch = ingest(store, item['path'], args.project, agent=args.agent)
                                 messages += batch['messages']
                                 if batch.get('duplicate') or not batch['pending_bytes']:
                                     pending += batch['pending_bytes']; break
                         except JudgmentError as exc:
                             errors.append({'source_key': item['source_key'], 'reason': str(exc)})
-                    return {'project_history': True, 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'messages': messages, 'pending_bytes': pending, 'errors': errors, 'imported': True}
-                return ingest(store,args.file,args.project)
+                    return {'project_history': True, 'agent': args.agent, 'directory': found['directory'], 'project': str(Path(args.project).resolve()), 'days': args.days, 'sessions': len(found['sessions']), 'messages': messages, 'pending_bytes': pending, 'errors': errors, 'imported': True}
+                return ingest(store,args.file,args.project,agent=args.agent)
             if args.command == "consolidate":
                 from .history import consolidate
                 return consolidate(store,args.scope,args.model_assessment)
@@ -329,17 +472,8 @@ def run(args):
             if args.command == "bind":
                 from .runtime import bind
                 return bind(store, load(args.source), args.confirm)
-            if args.command == "capture":
-                item = store.capture(load(args.source))
-                if args.semantic:
-                    from .runtime import screen
-                    screen(store, item)
-                    item = store.describe(item['record'])
-                return item
             if args.command in {"import", "import-trace"}:
                 return store.capture(from_trace(load(args.session), args.event, load(args.template), args.recorded_by))
-            if args.command == "revise":
-                return store.capture(load(args.source), args.id, args.reason, args.base_digest)
             if args.command == "inbox":
                 rows = [store.describe(json.loads(row[0])) for row in store.db.execute(
                     "SELECT body FROM revisions ORDER BY id,version")]
@@ -377,15 +511,9 @@ def main(argv=None):
     try:
         if args.env_file:
             import os
-            allowed = {"TYPESAFE_API_KEY", "PROOFPRESS_SEMANTIC_PROVIDER", "PROOFPRESS_SEMANTIC_MODEL", "PROOFPRESS_DECISION_MODEL_PROVIDER", "PROOFPRESS_DECISION_MODEL"}
-            for line in Path(args.env_file).read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                key, sep, value = line.partition("=")
-                if not sep or key.strip() not in allowed:
-                    raise JudgmentError("Unsupported BYOK environment entry")
-                os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            from .assessment import read_provider_env
+            for key, value in read_provider_env(Path(args.env_file)).items():
+                os.environ.setdefault(key, value)
         result = run(args)
         if args.command == 'history' and args.action == 'project' and not args.confirm and sys.stdin.isatty() and sys.stdout.isatty() and not args.json and args.format == 'text':
             print(render_text('history', result))
@@ -396,18 +524,47 @@ def main(argv=None):
                 print('No history imported.')
                 return 0
         if args.command == "onboard" and not args.confirm and sys.stdin.isatty() and sys.stdout.isatty() and not args.json and args.format == "text":
+            from .interactive import choose_capture_policy
             print(render_text("onboard", result))
-            if input("Enable this configuration? [y/N] ").strip().lower() == "y":
-                import getpass
-                args.confirm = True
-                if args.owner is None:
-                    path = Path(result["workspace"])
-                    args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+            answer = input("[D] Get started  [A] Customize with your agent  [C] Choose capture settings  [Q] Exit: ").strip().lower()
+            customize_with_agent = answer == "a"
+            if answer == "c":
+                selection = choose_capture_policy(result["capture_policy"], input)
+                if selection is None:
+                    print("No project changes.")
+                    return 0
+                args.triggers = selection["triggers"] or ["none"]
+                args.history = selection["history"]
                 result = run(args)
-            else:
-                print("No change.")
+                print(render_text("onboard", result))
+                answer = input("[D] Enable this policy  [Q] Cancel: ").strip().lower()
+            if answer not in {"d", "y", "a"}:
+                print("No project changes.")
                 return 0
-        if args.command in {"hook", "managed-hook", "cursor-hook"}:
+            print("How would you like to review judgments?")
+            print("  [1] Review them yourself; ask Jev when needed")
+            print("  [2] Also ask Jev after each capture or revision")
+            print("      Sends each candidate and review criteria to TypeSafe; requires your key.")
+            if result['review_policy']['evidence'] == 'referenced_history':
+                print("      Also sends matching referenced excerpts from imported history.")
+            review_choice = input("Your choice [1]: ").strip()
+            if review_choice not in {"", "1", "2"}:
+                print("No project changes.")
+                return 0
+            if review_choice == "2" and input("Enable automatic model advice for this project? [y/N]: ").strip().lower() != "y":
+                print("No project changes.")
+                return 0
+            import getpass
+            args.confirm = True
+            if args.owner is None:
+                path = Path(result["workspace"])
+                args.owner = json.loads((path / "config.json").read_text())["owner"] if path.exists() else "human:" + getpass.getuser()
+            args.expected_review_policy = result["review_policy"]
+            args.review_selection = {"mode": "on_capture" if review_choice == "2" else "manual"}
+            result = run(args)
+            if customize_with_agent:
+                result["next"] = ["Start a new agent session in this project and say: Help me customize my Proofpress capture and review policies."]
+        if args.command in {"hook", "managed-hook", "cursor-hook", "workflow-hook", "behavior-hook"}:
             print(json.dumps(result, separators=(",", ":")))
             return 0
         if args.json:
@@ -440,11 +597,26 @@ def main(argv=None):
             print(render_text(args.command, result))
         else:
             print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
-        return 3 if args.command in {"check", "assess"} and not result["ok"] else 0
+        return 3 if args.command in {"check", "assess", "task-start", "task-finish", "task-check", "task-prepare", "task-plan", "task-finish-files", "task-export"} and not result["ok"] else 0
     except (JudgmentError, OSError, ValueError, sqlite3.Error, KeyError, TypeError, EOFError, KeyboardInterrupt) as exc:
         if args.command=='cursor-hook':
             from .cursor import deny
             print(json.dumps(deny('Proofpress failed; action paused')))
+            return 0
+        if args.command in {"workflow-hook", "behavior-hook"}:
+            from .lifecycle import failure
+            event = getattr(args, '_hook_event', None)
+            if event is None:
+                try:
+                    event = load('-')
+                except (ValueError, OSError):
+                    event = None
+            if getattr(args, 'host', None) == 'cursor':
+                from .cursor import lifecycle_failure
+                result = lifecycle_failure(event, 'Provider configuration or lifecycle check unavailable')
+            else:
+                result = failure(event, 'Provider configuration or lifecycle check unavailable')
+            print(json.dumps(result))
             return 0
         if args.command in {"hook", "managed-hook"}:
             print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Proofpress failed; action paused"}}))

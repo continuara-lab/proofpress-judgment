@@ -2,8 +2,9 @@
 import json
 import os
 import sys
+from pathlib import Path
 
-PALETTE = {"accent":"5FB3C4", "add":"6FBF8E", "del":"C87E82", "move":"D7B56D", "dim":"ADB0BA"}
+PALETTE = {"accent":"2E8FA3", "add":"6FBF8E", "del":"C87E82", "move":"D7B56D", "dim":"ADB0BA"}
 
 
 def color(role, text):
@@ -27,8 +28,34 @@ def applicability(app):
     lines = ["Scope  " + app["scope"]]
     lines += ["When   " + c["field"] + " = " + scalar(c["equals"]) for c in app["when"]]
     lines += ["Limit  " + x for x in app["limits"]]
+    if app.get('task_criteria'):
+        lines.append('Task match  ' + app['task_criteria'])
     lines += [key.replace("_", " ").title() + "  " + app[key] for key in ("valid_from", "valid_until") if key in app]
     return lines
+
+
+def review_advice_text(result):
+    if result is None:
+        return "Not run for this revision."
+    if result.get("status") == "stale":
+        return "Out of date. Run Model assessment again."
+    assessment = result["assessment"]
+    labels = {"supported": "Evidence supported", "revise": "Revision suggested", "unknown": "Needs human judgment"}
+    reasons = {
+        "semantic_provider_not_configured": "Configure the TypeSafe key and model first.",
+        "invalid_project_provider_config": "Check the project Jev env file.",
+        "semantic_provider_failed": "The provider request failed.",
+        "semantic_input_too_large": "The assessment packet exceeds the size limit.",
+        "low_certainty": "The model returned an uncertain result.",
+        "unsupported_evidence": "The supplied evidence does not support the proposal.",
+        "scope_too_broad": "The scope is broader than the evidence supports.",
+        "criteria_unmet": "A project review criterion was not met.",
+        "deterministic_checks_blocked": "Resolve the local checks before sending for assessment.",
+    }
+    suffix = reasons.get(assessment.get("finding", assessment.get("reason")))
+    if assessment.get("model"):
+        suffix = " · ".join(filter(None, [suffix, "TypeSafe / " + assessment["model"]]))
+    return labels[assessment["choice"]] + (f" · {suffix}" if suffix else "") + f" · policy v{result['policy_version']}"
 
 
 def record_lines(item, detailed=False, identity=True):
@@ -53,6 +80,8 @@ def record_lines(item, detailed=False, identity=True):
         if r["judgment"].get("polarity"): lines.append("Polarity  " + r["judgment"]["polarity"])
         lines += ["Kind   " + r["judgment"]["kind"], "Why    " + (r["judgment"]["rationale"] or "Not recorded")]
         lines += applicability(r["applicability"])
+        if r.get('behavior'):
+            lines += ['Behavior  ' + json.dumps(r['behavior'], ensure_ascii=False, indent=2)]
         p = r["provenance"]
         lines += ["Origin " + p["origin"], "By     " + p.get("judged_by", p.get("decision_maker", "Not recorded")),
                   "Recorded  " + p["recorded_by"] + " · " + p["recorded_at"] + " · " + p["capture_method"]]
@@ -65,6 +94,8 @@ def record_lines(item, detailed=False, identity=True):
             capture = r['extensions'].get('proofpress_capture',{})
             if capture.get('trigger'): lines.append('Captured  '+capture['trigger'].replace('_',' '))
             lines.append("Source metadata: available with --json")
+    if item.get("review_advice"):
+        lines.append("Model advice  " + review_advice_text(item["review_advice"]))
     if item.get("flags"):
         lines.append("Paused · conflicting or uncertain judgment; inspect --json")
     if identity:
@@ -78,7 +109,7 @@ def agent_projection(command, result):
                 "judgments":[{**{k:x[k] for k in ("id","version","name")},
                               "judgment":x["record"]["judgment"],
                               "applicability":x["record"]["applicability"],
-                              **{k:x["record"][k] for k in ("context","alternatives","expected_outcome") if k in x["record"]}} for x in result["judgments"]],
+                              **{k:x["record"][k] for k in ("context","alternatives","expected_outcome","behavior") if k in x["record"]}} for x in result["judgments"]],
                 "boundary":result["boundary"], "holds":result.get("holds",[])}
     if isinstance(result, dict) and "record" in result:
         return {**{k:result[k] for k in ("id","version","name","state","digest")}, "flags":result.get("flags",[])}
@@ -89,16 +120,24 @@ def agent_projection(command, result):
 
 def render_text(command, result):
     if 'review_result' in result: return result['review_result']
+    if command == 'enforce':
+        return '\n'.join(['Judgment-owned enforcement · ' + ('connected' if result.get('confirmed') else 'preview'),
+                          'Config  ' + result.get('path', ''),
+                          'Coverage  ' + result.get('coverage', 'Managed host registration removed.'),
+                          result.get('boundary', result.get('trust', '')),
+                          'No workflow or per-judgment binding configuration is required.'])
     if result.get('host_setup'):
         action = 'Removed' if result.get('removed') else 'Installed'
         return '\n'.join([color('accent','Proofpress · Hooks'), color('accent','Host')+'  '+result['host'], color('accent','Config')+'  '+result['path'], (action if result['confirmed'] else 'Preview only; repeat with --confirm to change host configuration.'), result['trust'], *(['Command  '+result['command']] if not result['confirmed'] and 'command' in result else [])])
     if result.get('doctor'):
-        lines=[color('accent','Proofpress · Doctor'), color('accent','Project')+'  '+result['project'], color('accent','Store')+'  '+result['workspace'], color('accent','Skills')+'  '+(', '.join(result['skills']) or 'None; run proofpress onboard'), color('accent','Enforcement')+'  '+('Paused by owner' if result['paused'] else 'Enabled for configured bindings')]
+        lines=[color('accent','Proofpress · Doctor'), color('accent','Project')+'  '+result['project'], color('accent','Store')+'  '+result['workspace'], color('accent','Skills')+'  '+(', '.join(result['skills']) or 'None; run proofpress onboard'), color('accent','Enforcement')+'  '+('Paused by owner' if result['paused'] else 'Configured judgment checks and legacy bindings; inspect host status below')]
         for host in result['hosts']:
             lines += ['Hook  '+host['host']+' · '+('configured' if host['configured'] else 'missing or changed; reinstall'), 'Trust  '+host['trust']]
         if not result['hosts']: lines += ['Hook  Not installed; preview with proofpress hooks install']
         for b in result['bindings']: lines += ['Binding  '+b['name']+' v'+str(b['version'])+' · '+b['state']+' · '+', '.join(b['paths'])]
-        if not result['bindings']: lines += ['Bindings  None; review a judgment and choose enforcement.']
+        for b in result.get('behaviors', []):
+            lines += ['Judgment checks  ' + b['name'] + ' v' + str(b['version']) + ' · ' + ', '.join(b['events'])]
+        if not result['bindings'] and not result.get('behaviors'): lines += ['Checks  None; propose and review a judgment with behavior.']
         last=result['last_check']
         lines += ['Observed  '+(last['at']+' · '+('passed' if last['ok'] else 'blocked')+' · '+last['reason'] if last else 'No runtime check recorded; host execution is not verified.')]
         return '\n'.join(lines)
@@ -120,33 +159,66 @@ def render_text(command, result):
         return "\n".join(lines)
     if command == "inbox":
         return "\n".join(f"{status(x['state'])}  {x['name']} v{x['version']}  {x['id']}" for x in result['judgments']) or "No pending judgments."
+    if command == "review-assist":
+        return "Proofpress · Model advice\n" + review_advice_text(result) + "\nYou decide whether to approve."
+    if command == "review-policy":
+        from .review_policy import DEFAULT_CRITERIA
+        p = result["review_policy"]
+        timing = "After capture and revision" if p["mode"] == "on_capture" else "On request"
+        inputs = "Candidate and referenced history excerpts" if p["evidence"] == "referenced_history" else "Candidate record only"
+        return "\n".join([color("accent", "Proofpress · Review policy") + f"  v{p['version']}",
+                          "Model checks  " + timing, "Model inputs  " + inputs,
+                          "Criteria  " + (p["criteria"] or DEFAULT_CRITERIA),
+                          "Approval  Manual"])
     if command == "onboard":
         p = result['capture_policy']
         triggers = p['triggers']
         labels = {'human_judgment':'your judgments', 'human_correction':'your corrections', 'agent_judgment':'agent judgments', 'task_end':'task-end lessons'}
         capture = ', '.join(labels[x] for x in triggers) if triggers else 'off'
-        history = 'Import a project’s past Codex sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
-        lines = [color('accent', 'Proofpress · ' + ('Setup' if result['status'] == 'preview' else 'Ready')),
+        timing = 'After capture and revision' if result['review_policy']['mode'] == 'on_capture' else 'On request'
+        history = 'Import past Codex, Claude Code or Cursor sessions when you choose.' if p['history'] == 'selected_only' else 'Disabled.'
+        lines = [color('accent', 'Welcome to Proofpress' if result['status'] == 'preview' else 'Proofpress · Ready'),
+                 'Carry useful judgments from this work into later agent sessions.',
                  color('accent', 'Project') + '  ' + result['project'],
                  color('accent', 'Capture policy') + '  What your agent may save as a proposed judgment.',
                  color('accent', 'Capture') + '  ' + capture + '.',
                  '         Keep useful choices, reasons and conditions; skip routine messages.',
                  '         Agent guidance; no automatic listener is installed.',
                  color('accent', 'Review') + '   You approve judgments before reuse.',
+                 color('accent', 'Model checks') + '  ' + timing + '. See proofpress review-policy.',
                  color('accent', 'History') + '  ' + history,
                  color('accent', 'Hooks') + '    Setup does not install hooks. Check status with proofpress doctor.',
-                 color('accent', 'Change') + '   Run proofpress configure anytime.']
+                 color('accent', 'Change') + '   Run proofpress capture-policy to inspect or proofpress configure to edit.']
+        lines += ['  Capture guidance  ' + item for item in p.get('guidance',[])]
         if result['status'] == 'preview' and not (sys.stdin.isatty() and sys.stdout.isatty()):
             lines.append('To enable: repeat with --owner human:NAME --confirm.')
+        if result.get('startup_files'):
+            paths = ', '.join(str(Path(path).relative_to(result['project'])) for path in result['startup_files'])
+            lines.append(color('accent', 'Startup') + '  ' + paths)
+        if result['status'] == 'enabled':
+            lines.append('Next  ' + result['next'][0])
         return "\n".join(lines)
     if command == "capture-policy":
         p=result['capture_policy']
         labels={'human_judgment':'your judgments','human_correction':'your corrections','agent_judgment':'agent judgments','task_end':'task-end lessons'}
-        return '\n'.join([color('accent','Capture policy')+'  What your agent may propose for review.',color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),color('accent','Review')+'   You approve before reuse.',color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),color('accent','Change')+'   proofpress configure'])
+        lines = [color('accent','Capture policy')+'  What your agent may propose for review.',
+                 color('accent','Version')+'  '+str(p['version']),
+                 color('accent','Capture')+'  '+(', '.join(labels[x] for x in p['triggers']) or 'Off'),
+                 color('accent','Review')+'   You approve before reuse.',
+                 color('accent','History')+'  '+('Selected projects only' if p['history']=='selected_only' else 'Off'),
+                 color('accent','Extraction')+'  '+p['extraction'],
+                 color('accent','Excerpt limit')+'  '+str(p['max_excerpt_chars'])+' characters']
+        lines += [color('accent','Guidance')+'  '+item for item in p.get('guidance',[])]
+        lines.append(color('accent','Change')+'   proofpress configure')
+        if result.get('preview'):
+            lines.append('Preview only. A human can apply with proofpress capture-policy --from FILE --confirm.')
+        return '\n'.join(lines)
     if command == "history" and result.get('project_history'):
+        from .history import AGENT_LABELS
+        agent = AGENT_LABELS[result["agent"]]
         lines = [color('accent', 'Proofpress · Project history'),
                  color('accent','Project')+'  ' + result['project'],
-                 color('accent','History')+'  ' + str(result['sessions']) + ' Codex sessions · modified in last ' + str(result['days']) + ' days']
+                 color('accent','History')+'  ' + str(result['sessions']) + ' ' + agent + ' sessions · modified in last ' + str(result['days']) + ' days']
         if result['imported']:
             lines.append('Imported  ' + str(result['messages']) + ' messages locally · ' + str(result['pending_bytes']) + ' bytes pending')
             if result['errors']:
@@ -156,11 +228,14 @@ def render_text(command, result):
         else:
             lines.append('Import  Redacted excerpts stored locally; no model call or approval.')
             lines.append('Note  Redaction may not catch every sensitive detail.')
+            if result['agent'] == 'cursor':
+                lines.append('Source  ' + result['directory'])
         return '\n'.join(lines)
     if command == "history" and "sessions" in result:
         from datetime import datetime
+        from .history import AGENT_LABELS
         if not result['sessions']: return "No matching sessions."
-        lines=[color('accent','Codex sessions')+' · '+str(len(result['sessions']))+' sources']
+        lines=[color('accent',AGENT_LABELS[result['agent']]+' sessions')+' · '+str(len(result['sessions']))+' sources']
         for x in result['sessions']:
             date=datetime.fromtimestamp(x['modified_at']).strftime('%b %d')
             title=x['title']
@@ -170,7 +245,7 @@ def render_text(command, result):
                 title = 'First message: '+x['preview'] if x.get('preview') else 'Untitled session · '+x['session_id'][:8]
             if len(title)>72:title=title[:71]+'…'
             lines.append(color('accent',x['source_key'])+'  '+date+'  '+title)
-        lines.append('Preview: history preview --project PROJECT --session KEY')
+        lines.append('Preview: proofpress history preview --project PROJECT --agent '+result['agent']+' --session KEY')
         return "\n".join(lines)
     if command == "history":
         return "History · "+str(result['messages'])+" messages · "+str(result['pending_bytes'])+" bytes pending"+ (" · local import" if result.get('ok') else " · preview only")
@@ -184,6 +259,43 @@ def render_text(command, result):
         return "Review assistance · "+result['assessment']['choice']+" · "+str(len(result['flags']))+" flags · manual admission required"
     if command == "assess":
         return "No conflict flagged · candidate still needs review" if result["ok"] else "Paused · conflicting or uncertain judgment; inspect --json"
+    if command == "task-status":
+        labels = {"planning": "Planning", "context_paused": "Context needs clarification",
+                  "plan_paused": "Plan needs review", "executing": "Work in progress",
+                  "delivery_paused": "Delivery paused", "ready": "Reviewed revision ready"}
+        lines = [labels[result["state"]] + " · " + result["task_id"]]
+        if result["paused_boundary"]:
+            lines.append("Paused boundary  " + result["paused_boundary"])
+        if result["assessment"]:
+            lines.append('Assessment  No delivery check requested' if result.get('delivery_coverage') == 'not_requested' else "Assessment  " + {"pass": "Passed model review", "violation": "Model flagged a violation",
+                                         "unknown": "Insufficient certainty; needs review"}[result["assessment"]])
+        lines += ["Reason  " + reason for reason in result["reasons"]]
+        lines += ["Judgment  " + j["name"] + " v" + str(j["version"]) + " · " + j["judgment"]["statement"]
+                  for j in result["judgments"]]
+        lines += ["Reviewed artifact  " + name for name in result["artifacts"]]
+        if result.get("review_path"):
+            lines.append("Inspect review bundle  " + result["review_path"] + " (not delivery approval)")
+        lines += ["Next  " + action for action in result["next"]]
+        lines.append("Reading remains available. Repair writes remain available after a passing plan.")
+        return "\n".join(lines)
+    if command == "task-prepare":
+        lines = [("Context ready" if result["ok"] else "Context paused") + " · " + result["task_id"],
+                 "Context ID  " + result["context_id"], "Plan draft  " + result["plan_path"]]
+        lines += ["Reason  " + reason for reason in result["reasons"]]
+        lines += ["Judgment  " + j["name"] + " v" + str(j["version"]) + " · " + j["record"]["judgment"]["statement"]
+                  for j in result["judgments"]]
+        lines += ['Context  ' + value for value in result.get('context', [])]
+        lines.append('Plan check  ' + ('Not requested' if result.get('requires_plan') is False else 'Required'))
+        lines.append("Next  " + result["next"])
+        return "\n".join(lines)
+    if command in {"task-start", "task-finish", "task-check", "task-plan", "task-finish-files", "task-export"}:
+        outcome = "Passed" if result["ok"] else "Paused"
+        details = result.get("reasons", [])
+        if "assessment" in result:
+            details = [('No check requested' if result['assessment'].get('coverage') == 'not_requested' else result["assessment"]["choice"]), *details]
+        elif result.get('delivery_coverage') == 'not_requested':
+            details = ['No delivery check requested', *details]
+        return outcome + " · " + result["task_id"] + (" · " + "; ".join(details) if details else "") + ("\nExported  " + result["path"] if result.get("path") else "")
     if command == "bind":
         return "Runtime binding saved · install the host hook separately"
     if command == "check":

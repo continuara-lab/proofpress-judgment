@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Agent Judgment Format 0.3-draft (reads 0.1/0.2)",
+  "title": "Agent Judgment Format 0.4-draft (reads 0.1/0.2/0.3)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -20,7 +20,8 @@
       "enum": [
         "0.1-draft",
         "0.2-draft",
-        "0.3-draft"
+        "0.3-draft",
+        "0.4-draft"
       ]
     },
     "id": {
@@ -147,6 +148,9 @@
         "valid_until": {
           "type": "string",
           "format": "date-time"
+        },
+        "task_criteria": {
+          "$ref": "#/$defs/text"
         }
       }
     },
@@ -339,6 +343,63 @@
           "$ref": "#/$defs/text"
         }
       }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hooks",
+        "on_violation",
+        "on_unknown"
+      ],
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/text"
+        },
+        "on_violation": {
+          "const": "block_and_request_repair"
+        },
+        "on_unknown": {
+          "const": "pause_for_review"
+        },
+        "allow_exceptions": {
+          "type": "boolean"
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "paths",
+            "required"
+          ],
+          "properties": {
+            "paths": {
+              "$ref": "#/$defs/path_list"
+            },
+            "required": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_path"
+              }
+            }
+          }
+        },
+        "hooks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/action_hook"
+              },
+              {
+                "$ref": "#/$defs/stage_hook"
+              }
+            ]
+          }
+        }
+      }
     }
   },
   "allOf": [
@@ -348,7 +409,8 @@
           "ajf_version": {
             "enum": [
               "0.2-draft",
-              "0.3-draft"
+              "0.3-draft",
+              "0.4-draft"
             ]
           }
         }
@@ -417,6 +479,39 @@
           ]
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "ajf_version": {
+            "enum": [
+              "0.1-draft",
+              "0.2-draft",
+              "0.3-draft"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "behavior"
+              ]
+            },
+            {
+              "properties": {
+                "applicability": {
+                  "required": [
+                    "task_criteria"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
     }
   ],
   "$defs": {
@@ -424,6 +519,113 @@
       "type": "string",
       "minLength": 1,
       "pattern": "\\S"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.judgment(?:/|$)).+$"
+    },
+    "path_list": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/relative_path"
+      }
+    },
+    "semantic_verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "criteria"
+      ],
+      "properties": {
+        "type": {
+          "const": "semantic"
+        },
+        "criteria": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "action_hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "match",
+        "verifier"
+      ],
+      "properties": {
+        "event": {
+          "const": "before_action"
+        },
+        "activation": {
+          "const": "scope_and_conditions"
+        },
+        "match": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "paths"
+          ],
+          "properties": {
+            "action": {
+              "const": "direct_file_edit"
+            },
+            "paths": {
+              "$ref": "#/$defs/path_list"
+            }
+          }
+        },
+        "verifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "version"
+          ],
+          "properties": {
+            "type": {
+              "const": "builtin"
+            },
+            "name": {
+              "enum": [
+                "deny_action",
+                "require_conditions"
+              ]
+            },
+            "version": {
+              "const": 1
+            },
+            "message": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        }
+      }
+    },
+    "stage_hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "verifier"
+      ],
+      "properties": {
+        "event": {
+          "enum": [
+            "before_execution",
+            "before_delivery"
+          ]
+        },
+        "verifier": {
+          "$ref": "#/$defs/semantic_verifier"
+        }
+      }
     }
   }
 }

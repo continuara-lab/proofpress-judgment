@@ -12,7 +12,7 @@ class TTY(io.StringIO):
 class TerminalTests(unittest.TestCase):
     def test_bold_colors_ignore_theme_and_respect_no_color(self):
         with contextlib.redirect_stdout(TTY()), patch.dict(os.environ, {}, clear=True):
-            expected = '\x1b[1;38;2;95;179;196mx\x1b[0m'
+            expected = '\x1b[1;38;2;46;143;163mx\x1b[0m'
             self.assertEqual(color('accent', 'x'), expected)
             for theme in ('light', 'dark'):
                 os.environ['PROOFPRESS_THEME'] = theme

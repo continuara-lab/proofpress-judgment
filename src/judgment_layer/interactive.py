@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 from .model import JudgmentError, digest
 from .store import Store
-from .presentation import color, status
+from .presentation import color, review_advice_text, status
 
 
 def edit_document(record):
@@ -21,6 +21,9 @@ def edit_document(record):
              'why = '+q(j['rationale'] or ''), 'scope = '+q(app['scope']),
              '# Conditions: a JSON list of {"field": "...", "equals": value}. Missing facts exclude reuse.',
              'conditions = '+q(json.dumps(app['when'], ensure_ascii=False)),
+             'task_criteria = '+q(app.get('task_criteria', '')),
+             '# Behavior JSON is part of the reviewed revision, not a separate workflow.',
+             'behavior = '+q(json.dumps(record.get('behavior'), ensure_ascii=False)),
              'limits = '+q(app['limits']), 'situation = '+q(record.get('context', {}).get('situation', '')),
              'goal = '+q(record.get('context', {}).get('goal', '')),
              'constraints = '+q(record.get('context', {}).get('constraints', [])),
@@ -34,12 +37,21 @@ def edit_document(record):
         if subprocess.run([*command, str(path)]).returncode: raise JudgmentError('Editor failed; no candidate created')
         if path.read_text() == original: return None
         fields = tomllib.loads(path.read_text())
-    required = {'name', 'statement', 'why', 'scope', 'conditions', 'limits', 'situation', 'goal', 'constraints', 'expected_outcome', 'verification'}
+    required = {'name', 'statement', 'why', 'scope', 'conditions', 'task_criteria', 'behavior', 'limits', 'situation', 'goal', 'constraints', 'expected_outcome', 'verification'}
     if set(fields) != required: raise JudgmentError('Keep the named editor fields; no candidate created')
     doc = copy.deepcopy(record)
     doc.pop('id'); doc.pop('version')
     doc['name'] = fields['name']; doc['judgment'].update(statement=fields['statement'], rationale=fields['why'] or None)
     doc['applicability'].update(scope=fields['scope'], when=json.loads(fields['conditions']), limits=fields['limits'])
+    if fields['task_criteria']:
+        doc['applicability']['task_criteria'] = fields['task_criteria']
+    else:
+        doc['applicability'].pop('task_criteria', None)
+    behavior = json.loads(fields['behavior'])
+    if behavior is not None:
+        doc['behavior'] = behavior
+    else:
+        doc.pop('behavior', None)
     if fields['situation']:
         doc['ajf_version'] = '0.3-draft'
         doc.setdefault('context', {})['situation'] = fields['situation']
@@ -52,6 +64,8 @@ def edit_document(record):
         doc['expected_outcome']={'description':fields['expected_outcome']}
         if fields['verification']:doc['expected_outcome']['verification']=fields['verification']
     else:doc.pop('expected_outcome',None)
+    if 'behavior' in doc or 'task_criteria' in doc['applicability'] or record['ajf_version'] == '0.4-draft':
+        doc['ajf_version'] = '0.4-draft'
     return doc
 
 
@@ -64,7 +78,13 @@ def revise_in_editor(workspace, jid):
     if doc is None: return None
     s = Store(workspace)
     try:
-        with s.transaction(): return s.capture(doc, jid, 'Edited in Proofpress CLI', base_hash)
+        from .review_policy import review_assist
+        with s.transaction():
+            item = s.capture(doc, jid, 'Edited in Proofpress CLI', base_hash)
+        advice = review_assist(s, jid, item["digest"], automatic=True)
+        if advice is not None:
+            item["review_advice"] = advice
+        return item
     finally: s.close()
 
 
@@ -77,8 +97,41 @@ def review_preview(item, enforcement):
     if not app['when']: lines += ['  No factual conditions recorded. Review whether this scope is narrow enough.']
     lines += ['  Limit: '+x for x in app['limits']]
     lines += [color('accent', 'Source')]+['  '+x for x in r['provenance']['source_refs']]
+    if 'deterministic_issues' in item:
+        lines += [color('accent', 'Admission checks'), '  ' + (' '.join(item['deterministic_issues']) or 'Local checks passed.')]
+        lines += [color('accent', 'Review criteria'), '  ' + item['review_criteria']]
+        lines += [color('accent', 'Model advice'), '  ' + review_advice_text(item.get('review_advice'))]
+        advice = item.get('review_advice') or {}
+        assessment = advice.get('assessment', {})
+        probabilities = assessment.get('probabilities', {})
+        if probabilities:
+            labels = {'supported': 'Evidence supported', 'unknown': 'Needs human judgment',
+                      'scope_too_broad': 'Scope too broad', 'unsupported_evidence': 'Evidence unsupported',
+                      'criteria_unmet': 'Criteria unmet'}
+            choice = max(probabilities, key=probabilities.get)
+            lines += ['  Highest model choice: ' + labels.get(choice, choice) + f" ({probabilities[choice]:.0%}).",
+                      f"  Model confidence: {assessment['confidence']:.0%}. Thresholds: 95% choice, 90% confidence.",
+                      '  This check returns a choice and scores; no written explanation was requested.']
+        lines += [color('accent', 'Approval'), '  You decide whether to approve this revision.']
     lines += [color('accent', 'Proposed enforcement')]
-    if enforcement:
+    if r.get('behavior'):
+        b = r['behavior']
+        if app.get('task_criteria'):
+            lines += ['  Task match: ' + app['task_criteria']]
+        if b.get('context'):
+            lines += ['  Context: ' + b['context']]
+        for hook in b['hooks']:
+            verifier = hook['verifier']
+            lines += ['  ' + hook['event'] + ': ' + verifier.get('criteria', verifier.get('name', ''))]
+            if hook.get('match'):
+                lines += ['    Paths: ' + ', '.join(hook['match']['paths'])]
+        if b.get('artifacts'):
+            lines += ['  Delivery files: ' + ', '.join(b['artifacts']['paths']),
+                      '  Required files: ' + ', '.join(b['artifacts']['required'])]
+        lines += ['  Violation: block and request repair. Unknown: pause for human review.',
+                  '  Approval covers this behavior and exact revision. Host connection is separate.',
+                  '  Semantic matching/review sends task, plan or declared artifacts to the configured provider.']
+    elif enforcement:
         descriptions = {'deny_generated_write': 'Block direct edits to these generated paths.', 'require_conditions': 'Check lifecycle and factual conditions only; does not judge output.', 'decision_model_output': 'Send complete new-file content and this judgment to the configured decision model; violations, uncertainty and provider errors pause writes.'}
         lines += ['  '+color('accent', 'Hook')+'   Before tool use in '+enforcement['project_root'],
                   '  '+color('accent', 'Paths')+'  '+', '.join(enforcement['paths']),
@@ -91,24 +144,39 @@ def review_preview(item, enforcement):
 
 
 def interactive_review(workspace, jid, enforcement=None, input_fn=input):
+    from .review_policy import DEFAULT_CRITERIA, admission_issues, current_advice, review_assist, review_policy
     while True:
         s = Store(workspace)
         try:
             with s.transaction():
                 item = s.describe(s.record(jid))
+                item["deterministic_issues"] = admission_issues(s, item["record"])
+                item["review_advice"] = current_advice(s, item["record"])
+                item["review_criteria"] = review_policy(s)["criteria"] or DEFAULT_CRITERIA
                 from .hosts import bindings
                 old_binding=next((b for b in bindings(s) if b['judgment_id']==jid),None)
         finally: s.close()
         print(review_preview(item, enforcement))
         if old_binding:
             print('Existing protection: v'+str(old_binding['version'])+'. Choose Enforcement to review its replacement; approval alone does not upgrade it.')
-        answer = input_fn('[A] Approve'+(' and bind' if enforcement else '')+'  [E] Edit  [H] Enforcement  [R] Reject  [C] Cancel: ').strip().lower()
+        answer = input_fn('[A] Approve'+(' and bind' if enforcement else '')+'  [J] Model assessment  [E] Edit  [H] Enforcement  [R] Reject  [C] Cancel: ').strip().lower()
         if answer in {'c', ''}: return {'review_result': 'Cancelled; no approval made.'}
+        if answer == 'j':
+            if input_fn('Run model assessment? This sends the candidate and any policy-enabled referenced excerpts to TypeSafe. [y/N]: ').strip().lower() == 'y':
+                s = Store(workspace)
+                try:
+                    review_assist(s, jid, item["digest"])
+                finally:
+                    s.close()
+            continue
         if answer == 'e':
             revised = revise_in_editor(workspace, jid)
             if revised is not None: enforcement = None  # Changed meaning needs a fresh explicit enforcement choice.
             continue
         if answer == 'h':
+            if item['record'].get('behavior'):
+                print('Checks already belong to this judgment. Choose Edit to revise its behavior JSON; no separate binding is needed.')
+                continue
             kind = input_fn('Enforcement: [N] Advice only  [G] Generated paths  [L] Lifecycle/conditions  [M] Decision model: ').strip().lower()
             if kind == 'n': enforcement = None; continue
             choices = {'g':'deny_generated_write','l':'require_conditions','m':'decision_model_output'}
@@ -129,25 +197,52 @@ def interactive_review(workspace, jid, enforcement=None, input_fn=input):
         finally: s.close()
 
 
+def choose_capture_policy(current, input_fn=input):
+    value = copy.deepcopy(current)
+    print(color('accent', 'Proofpress · Customize capture'))
+    print('Choose which moments may produce a candidate. Press Enter to keep each setting.')
+    labels = [
+        ('human_judgment', 'Your reusable judgment, such as when to bypass a cache'),
+        ('human_correction', 'Your correction after an agent makes a wrong call'),
+        ('agent_judgment', "An agent's consequential choice and its tradeoff"),
+        ('task_end', 'A reusable lesson from a finished or failed task'),
+    ]
+    selected = []
+    for key, label in labels:
+        default = key in value['triggers']
+        answer = input_fn(label + (' [Y/n/q]: ' if default else ' [y/N/q]: ')).strip().lower()
+        if answer == 'q':
+            return None
+        if (not answer and default) or answer == 'y':
+            selected.append(key)
+    value['triggers'] = selected
+    default = value['history'] == 'selected_only'
+    answer = input_fn('Allow import from projects you explicitly select?' + (' [Y/n/q]: ' if default else ' [y/N/q]: ')).strip().lower()
+    if answer == 'q':
+        return None
+    value['history'] = 'selected_only' if answer == 'y' or (not answer and default) else 'none'
+    return value
+
+
 def configure(workspace, input_fn=input):
     from .intake import policy, set_policy
+    from .presentation import render_text
     s = Store(workspace)
     try:
-        with s.transaction(): value = copy.deepcopy(policy(s))
-        labels = [('human_judgment','Your guidance and judgment'),('human_correction','Your corrections'),('agent_judgment',"Agent's consequential choices"),('task_end','Lessons from completed or failed tasks')]
-        print(color('accent', 'Proofpress · Capture settings'))
-        print('Choose what the agent may propose for review. You approve before reuse.')
-        selected=[]
-        for key,label in labels:
-            default=key in value['triggers']
-            answer=input_fn(label+(' [Y/n]: ' if default else ' [y/N]: ')).strip().lower()
-            if (default and answer!='n') or answer=='y': selected.append(key)
-        value['triggers']=selected
-        value['history']='selected_only' if input_fn('Allow history from projects you explicitly select? [Y/n]: ').strip().lower()!='n' else 'none'
-        print('Capture remains agent guidance; no background listener. Review remains manual.')
-        if input_fn('Save these settings? [y/N]: ').strip().lower()!='y': return {'review_result':'Settings unchanged.'}
-        with s.transaction(): return set_policy(s,value,True)
-    finally: s.close()
+        with s.transaction():
+            current = policy(s)
+        value = choose_capture_policy(current, input_fn)
+        if value is None:
+            return {'review_result': 'Settings unchanged.'}
+        print(render_text('capture-policy', {'capture_policy': value}))
+        if input_fn('Save these settings? [y/N]: ').strip().lower() != 'y':
+            return {'review_result': 'Settings unchanged.'}
+        with s.transaction():
+            if policy(s) != current:
+                raise JudgmentError("Capture policy changed during setup; rerun proofpress configure")
+            return set_policy(s, value, True)
+    finally:
+        s.close()
 
 
 def review_inbox(workspace, input_fn=input):

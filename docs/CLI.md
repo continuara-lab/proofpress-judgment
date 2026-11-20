@@ -5,21 +5,27 @@ capture means for your project: your judgments, corrections, consequential agent
 choices and task-end lessons. Each category creates proposals for manual review.
 No automatic listener is installed.
 
+- `proofpress capture-policy` shows the active capture settings.
+- `proofpress review-policy` shows when model review runs, what it receives and which criteria it uses.
+- `proofpress review-assist ID` requests model advice on the latest pending revision. [Review policy](INTAKE.md#review-policy)
 - `proofpress review` opens a numbered inbox; choose a candidate without copying an ID.
 - `proofpress review ID` reviews one judgment, with editing and proposed enforcement.
 - `proofpress edit ID` opens a concise TOML form in `$VISUAL` / `$EDITOR` / `vi`.
 - `proofpress withdraw ID` guides manual withdrawal and explains remaining protection.
 - `proofpress doctor` distinguishes configuration, bindings and observed runtime checks.
-- `proofpress hooks install --host codex` previews host registration; `--confirm` installs it.
+- `proofpress example --behavior` prints a judgment with task criteria and optional checks.
+- `proofpress enforce install --host claude-code` previews judgment-owned lifecycle checks; `--confirm` connects them. No workflow configuration is needed.
+- `proofpress hooks install --host codex` remains available for legacy action bindings.
 - `proofpress match --scope SCOPE --facts FILE` explains applicability without a model call.
 - `proofpress pause --confirm`, `resume --confirm` and `unbind ID --confirm` explicitly change protection.
 - `proofpress uninstall --confirm` removes managed integration and retains the store.
 
-For project history, run `history project --project PATH --days 7`. It prompts
+For project history, run `history project --project . --agent codex`. Use
+`claude-code` or `cursor` for their local sessions. The CLI prompts
 before local import. Then `consolidate --scope SCOPE --model-assessment --all`
 explicitly sends pending excerpts to Codex and creates candidates. Omit `--all`
 for a single batch. Manual review remains required. Model failure stops the run;
-completed batches are preserved and retries resume.
+completed batches are preserved and retries resume. [Import guide](INTAKE.md)
 
 [End-to-end local trial](LOCAL-ALPHA.md) explains trust, recovery and boundaries.
 The explicit commands below remain available for scripts; owner actions require
@@ -117,9 +123,9 @@ Conditions are conservative exact-scalar equality checks against supplied facts;
 scope is exact, not semantic similarity. Missing facts fail closed. The caller
 must obtain truthful facts from the actual environment. A model saying a fact is
 true does not verify it. `check` and an external tool action are not atomic, and
-this release installs **no runtime hooks or action interception**.
+it is separate from [host hook enforcement](RUNTIME.md).
 
-## Import capture history
+## Import a TRACE record
 
 ```sh
 proofpress import --session examples/trace-session.json \
@@ -137,9 +143,8 @@ connection. See [upstream mechanisms](UPSTREAM.md).
 ## Defaults and trust
 
 `proofpress policy` displays `.judgment/config.json`. Capture-origin filters are
-enforced; prose capture guidance is for the agent to follow. This version does
-not extract decisions from free-form chat automatically. A user or an agent must
-write an explicit record or invoke the TRACE importer.
+enforced; prose capture guidance is for the agent to follow. Agents can propose explicit records during a session. To extract candidates
+from selected local sessions, use the separate [history workflow](INTAKE.md).
 
 Only manual admission is implemented. An `automatic` configuration is rejected,
 not silently enabled. Future Owner-policy admission requires a separate design;
@@ -187,3 +192,32 @@ rationale and applicability. Historical events and source metadata stay in the
 store. This is a projection, not a portable AJF record. `--json` (or `--format
 json`) returns full data; `show ID` shows readable review details. Scripts that
 previously relied on implicit JSON must now request `--json`.
+
+## Judgment-owned enforcement
+
+Use [Behavior](BEHAVIOR.md) for the full example and coverage limits.
+
+```sh
+proofpress example --behavior > judgment.json
+proofpress capture --from judgment.json
+proofpress review
+proofpress enforce install --host claude-code --confirm
+proofpress doctor
+```
+
+`enforce install --facts facts.json` supplies human-reviewed project facts;
+missing facts pause rather than being inferred. Omit it to preserve the connection's
+current facts. The one-time connection owns host/project/provider settings, while
+each judgment owns its applicability and checks.
+
+`task-prepare --task TASK --description REQUEST_FILE` defaults to admitted
+judgments, without `--workflow`. It supplies context and `requires_plan` plus a
+context token. Only a declared `before_execution` hook requires `task-plan`.
+Native `enforce install` now connects prompt, action and completion events for
+Claude Code, Codex and Cursor; Cursor completion is post-response review with a
+bounded follow-up. For custom integrations, use `task-attach` for explicit host
+sessions and `task-finish-files`/`task-export`
+for reviewed file bundles. Claude's native Stop path reviews files and response
+together; don't duplicate it with file-only review for ordinary completion.
+Existing `workflow`, `workflow-hooks`, `bind` and explicit `task-start` interfaces
+remain available to advanced integrations. They are not prerequisites for AJF 0.4.

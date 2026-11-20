@@ -1,0 +1,81 @@
+{
+  "name": "Regenerate clients from the source schema",
+  "description": "Synthetic example: reviewed behavior belongs to this judgment.",
+  "judgment": {
+    "statement": "Modify the source schema and regenerate clients; do not directly edit generated clients.",
+    "kind": "conditional_guidance",
+    "rationale": "Direct edits are overwritten by regeneration and can diverge from the source schema."
+  },
+  "applicability": {
+    "scope": "coding/api",
+    "when": [],
+    "task_criteria": "The task changes an API schema, interface fields, or generated client code.",
+    "limits": [
+      "This project keeps the source schema in api/schema.yaml and generated clients in src/generated/."
+    ]
+  },
+  "provenance": {
+    "origin": "human_guidance",
+    "recorded_by": "agent:assistant",
+    "judged_by": "human:demo-owner",
+    "recorded_at": "2026-11-07T12:00:00Z",
+    "capture_method": "explicit",
+    "source_refs": [
+      "synthetic://change-the-source-not-generated-files/correction/1"
+    ]
+  },
+  "evidence": [
+    {
+      "reference": "synthetic://change-the-source-not-generated-files/correction/1",
+      "role": "supports",
+      "summary": "Explicit synthetic guidance; not a measured task outcome."
+    }
+  ],
+  "ajf_version": "0.4-draft",
+  "behavior": {
+    "context": "Modify api/schema.yaml and use the project generation process for src/generated/.",
+    "on_violation": "block_and_request_repair",
+    "on_unknown": "pause_for_review",
+    "artifacts": {
+      "paths": [
+        "api/*",
+        "src/generated/*"
+      ],
+      "required": [
+        "api/schema.yaml"
+      ]
+    },
+    "hooks": [
+      {
+        "event": "before_execution",
+        "verifier": {
+          "type": "semantic",
+          "criteria": "The concrete plan identifies the source schema changes and how clients will be regenerated and checked."
+        }
+      },
+      {
+        "event": "before_action",
+        "activation": "scope_and_conditions",
+        "match": {
+          "action": "direct_file_edit",
+          "paths": [
+            "src/generated/*"
+          ]
+        },
+        "verifier": {
+          "type": "builtin",
+          "name": "deny_action",
+          "version": 1,
+          "message": "Modify the source schema and regenerate; do not directly edit generated clients."
+        }
+      },
+      {
+        "event": "before_delivery",
+        "verifier": {
+          "type": "semantic",
+          "criteria": "Actual schema/client changes and supporting generation evidence follow the judgment. Missing evidence is unknown."
+        }
+      }
+    ]
+  }
+}

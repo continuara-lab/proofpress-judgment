@@ -1,41 +1,104 @@
-# Small local architecture
+# Behavioral contracts: how Proofpress works
 
-One Python package. One SQLite database. Three concepts:
+Proofpress turns reviewed human and agent judgments into behavioral contracts for
+coding agents. A contract carries the decision, rationale, applicability and
+optional behavior checks. AJF is its portable representation; local records keep
+review authority and execution receipts. See the [simple architecture diagram](../README.md#architecture)
+and the [runtime detail](BEHAVIOR.md#runtime-architecture).
 
-1. **Immutable revision:** validated AJF with an exact canonical JSON digest.
-2. **Provenance/governance event:** linked to an exact revision, recorded in a
-   hash-linked journal. Source identities are declarations.
-3. **Current projection:** derived state (`proposed`, `needs_changes`, `admitted`,
-   `rejected`, `superseded`, `withdrawn`), plus read-time scope, conditions, time
-   validity and exact-version dependency eligibility.
+1. **Agent session.** Your project guidance tells the agent when to propose useful
+   judgments. You can also import selected local transcripts from Codex, Claude
+   Code or Cursor and extract candidates separately.
+2. **Draft judgment.** The [Agent Judgment Format](AJF.md) records the choice,
+   rationale, original situation, applicability and source.
+3. **Human review.** Edit, approve or reject the exact revision. For covered
+   actions, review the hooks, verifiers, artifact coverage and failure handling
+   embedded in that judgment. A separate binding is only a legacy interface.
+4. **Later agent session.** The CLI supplies current approved judgments whose
+   scopes, conditions, validity and dependencies match. A one-time host connection
+   supplies task/action/completion events; declared checks are selected from AJF.
+   No user-authored workflow configuration is required.
 
-Every ledger operation opens a transaction, checks stored record/journal integrity,
-and serializes with `BEGIN IMMEDIATE`. Review binds a human-inspected digest and
-version; admission and predecessor supersession commit together. Revision checks
-the expected latest base digest to avoid silently linking a stale edit to a new
-base. Withdrawing v2 never resurrects v1.
+[Import past sessions](INTAKE.md) · [Enforce judgments](RUNTIME.md)
 
-A pending revision does not itself invalidate a previously admitted revision.
-Explicitly withdraw incorrect active guidance. Revisions of pending candidates
-replace the pending candidate, not its immutable content. Dependencies never
-silently advance to a newer version. A dependency becoming withdrawn, expired,
-superseded or inapplicable blocks its consumer at read/check time.
+## What lives in the project
 
-Receipts bind supplied record versions, facts and policy. They record supply,
-not actual reliance or real-world outcomes. `check` re-evaluates them and returns
-nonzero for empty context. Explicit runtime bindings and local pre-tool adapters are available. Selected
-Codex history can be imported and extracted into candidates; observations append
-separately to revisions. Host authentication, automatic admission, cross-project
-sharing and causal outcome learning are not implemented.
+Proofpress is a Python CLI with a project-local SQLite store in `.judgment/`.
+The store contains immutable AJF revisions, governance events, context receipts,
+task/run records, outcome observations, imported excerpts and legacy enforcement
+bindings.
+Review authority stays in the local store when AJF is exported.
 
-The portable skill is a workflow aid. Install the Python runtime directly from
-Git or a checkout, then use `setup` to prepare project-local skill directories.
-Setup bundles the workflow, example and schema with a selected local store path;
-it preserves existing files and never admits judgments or installs hooks. There
-is no PyPI publication or host marketplace release. SQLite scans and full
-integrity verification favor auditability over scale in this small v0.
+The journal binds events to exact content digests. Store transactions verify
+integrity and serialize updates with `BEGIN IMMEDIATE`. Review binds the
+inspected revision. Admission and predecessor supersession commit together.
+A pending revision leaves the previous admission active. Withdrawing a
+revision does not revive an older one. Dependencies stay pinned to their
+approved versions.
 
-Next work should follow usage: normal host-installation/trust verification,
-continuous capture adapters, a broader terminal review flow, and a fair memory-notes
-experiment. Strong owner/agent isolation requires a different authority boundary,
-not another command-line flag.
+## How retrieval works
+
+Agents call `proofpress context` with an exact scope and known task facts.
+The current CLI reads SQLite revisions and filters in Python. It keeps admitted,
+applicable versions whose conditions, validity window and pinned dependencies
+match. A recorded conflict or unresolved scope hold can suppress those matches.
+Use `proofpress match` to see inclusion and exclusion reasons. The caller
+supplies the scope and facts. This path makes no model call.
+
+## Advice and enforcement
+
+A context receipt records which versions and facts the CLI supplied. Use
+`proofpress check` to re-evaluate it against current state. Outcome observations
+append to a revision without changing it. A receipt measures context supplied;
+an outcome observation records what was observed.
+
+AJF 0.4 optionally carries behavior: context, task recognition criteria, hooks,
+verifiers, artifact coverage and failure handling. The behavior task resolver
+considers every admitted behavior-bearing judgment in the project-local store;
+known conditions filter first, then optional semantic task criteria. Missing facts
+and uncertainty pause. No top-k search controls candidate inclusion. Selected
+judgments provide context before a declared plan check. Matching action rules
+remain active independently of semantic task selection. Delivery reads actual
+files declared by the selected judgments and checks exact versions and outputs.
+Approvals and check receipts remain outside the portable JSON.
+
+An advanced legacy enforcement binding pins a verifier and covered actions to an admitted
+revision. When the installed host emits a covered action, the hook checks the
+binding and returns pass or pause. Stale, withdrawn and superseded bindings
+pause until a human resolves them. Host trust, tool coverage and check timing
+define the limits of local enforcement.
+[Runtime details](RUNTIME.md) · [Security boundaries](../SECURITY.md)
+
+## Optional decision model
+
+Proofpress checks structured assertions, scope, conditions and versions locally.
+Jev, called through TypeSafe, supports these opt-in assessments:
+
+| Entry point | What Jev receives | What Proofpress does with the result |
+| --- | --- | --- |
+| Admission advice | The candidate, project review criteria, and optionally referenced history excerpts | Recommends approval, revision, or human judgment. Advice is scoped to the candidate and review policy versions. |
+| Conflict assessment | The proposed judgment and overlapping approved judgments | Flags a potential conflict or uncertainty for review |
+| Judgment-owned task/plan/delivery checks | Task criteria, task text, actual plan, selected judgments and declared file/response artifacts | Pause on uncertainty or violation; aggregate stage checks; no per-action semantic calls |
+| Legacy bound output check | The approved judgment and complete proposed new-file content | Pauses a covered write on a violation, uncertainty or provider failure |
+
+Human review controls admission and binding. A model pass on a write leaves the
+host's own permissions in effect. [Set up Jev](RUNTIME.md#set-up-jev)
+
+## Install and integrate
+
+[The installer](INSTALL.md) sets up the CLI, store and project-local guidance.
+Codex, Claude Code and Cursor can load the guidance at startup. Other supported
+hosts can load the skill through their entry points. Hook installation and
+history import are separate steps.
+
+[Supported agents](AGENTS.md) · [CLI commands](CLI.md)
+
+## Automatic completion connections
+
+`enforce install` registers native lifecycle events for Claude Code, Codex and
+Cursor, with separate host manifests and output contracts. Codex supplies actual
+final text on Stop. Cursor captures actual text on afterAgentResponse, correlates
+it by conversation/generation and checks it on stop. Missing or stale responses
+remain unknown. Codex continuation prompts retain the same task; Cursor stop
+uses only its supported bounded follow-up mechanism and cannot veto displayed
+text. See [host coverage](BEHAVIOR.md#host-coverage) for boundaries and references.

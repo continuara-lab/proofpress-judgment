@@ -40,11 +40,57 @@ directly. For Cursor, only choose files you know belong to the specified project
 Use `--root` to override the history root for discovery. The time window uses
 file modification time. Scan examines at most 5,000 candidate files.
 
-Import reads user and assistant text from supported local JSONL, skipping tool
-calls, tool results and non-text blocks. Files may be up to 32 MiB. Excerpts,
-roles, timestamps when available and byte-range references stay in the local
-store. Known credential formats are redacted on a best-effort basis. Review
-which transcripts you selected before authorizing extraction.
+By default import reads only user/assistant text from supported local JSONL and
+skips tool calls/results. This is conversation-excerpt import, **not a complete
+trajectory audit**. Preview and import output state the selected coverage.
+
+### Opt in to logged tool events
+
+```sh
+# Local timeline preview; no import or model call:
+proofpress history timeline --project . --agent codex --file /path/session.jsonl \
+  --include-tools --json
+# Preview selected project coverage, then explicitly import:
+proofpress history project --project . --agent codex --include-tools
+proofpress history project --project . --agent codex --include-tools --confirm
+```
+
+The same flag works with single-session preview/import and supported Claude Code
+or Cursor JSONL. Tool arguments/results may include command text, file contents
+and private data. Known credential formats and sensitive structured keys are
+redacted on a best-effort basis; this is not a guarantee of removing all secrets.
+Review the local selection before authorizing extraction/model review. Import
+alone never sends content to a model or runs a logged command.
+
+The opt-in mode stores a separate ordered `events` view of message text, tool
+calls and tool results. Events keep native call ids when present, timestamps when
+available, byte ranges and per-record event indices. Timeline previews return `next_offset` and
+`pending_bytes`; continue with `--offset NEXT_OFFSET` when more complete records
+are available. Import checkpoints remain separately managed. Links use explicit ids only;
+missing call/result counterparts are shown as unavailable in the selected excerpt,
+not fabricated. Missing error flags remain unknown, not successful. Log ordering
+is not a causal reconstruction of parallel/remote work.
+
+| Source | Tool event shapes currently normalized |
+| --- | --- |
+| Codex response items | `function_call`, `function_call_output`, `custom_tool_call`, `custom_tool_call_output` |
+| Claude Code main user/assistant blocks | `tool_use` and `tool_result`, preserving mixed text/tool block order |
+| Cursor-compatible content blocks | Explicit `tool_use`/`tool_result` blocks when present in its saved JSONL; other layouts are unsupported |
+
+System/developer messages, private reasoning, recognized image/nontext blocks,
+Claude sidechains/meta records,
+unsupported shapes and events absent from the local log are excluded. Omission
+counters and coverage metadata stay with each imported batch. Subagents are not
+automatically traversed or merged. **Even tool-inclusive import is bounded logged
+trace review, not complete trajectory auditing, replay or verified execution.**
+
+Tool mode has an independent checkpoint from text mode, so it can backfill a
+previously text-only session without rewriting old ledger records. Normalized
+text events in that second view may repeat previously imported aggregate text;
+the two views have distinct event references. Each mode is independently
+incremental/idempotent; mirrors deduplicate matching event references. Files may
+be up to 32 MiB. A native record larger than the excerpt budget pauses rather
+than silently truncating tool content. Partial records remain pending.
 
 Project import processes available batches. Single-session import reads up to
 the configured character budget per invocation, 24,000 by default. Repeated
@@ -60,6 +106,13 @@ proofpress consolidate --scope coding
 proofpress consolidate --scope coding --model-assessment --all
 proofpress review
 ```
+
+For tool-inclusive batches, extraction sees the ordered text/tool event view,
+including tool-only batches. References to tool events can also be resolved by
+review assistance when referenced-history evidence is enabled. Logged results
+can ground or contradict a proposed judgment; they do not independently prove
+execution or justify an audited-trajectory claim. Candidates record their source
+coverage mode and still require human admission.
 
 The first command previews pending batches. `--model-assessment` sends excerpts
 through the Codex CLI and requires a working Codex login, regardless of which
